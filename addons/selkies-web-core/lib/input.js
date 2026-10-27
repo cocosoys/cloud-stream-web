@@ -48,7 +48,9 @@
  * `MOTION_SEND_INTERVAL_MS` apart.
  * Under pointer lock the payload is a relative delta, scaled to server pixels
  * and quantized with a carried remainder. Gaming mode is document fullscreen
- * plus pointer and keyboard lock. Touch is direct (tap, drag, long-press right
+ * plus pointer and keyboard lock, with the stream stretched over the whole
+ * screen (`_applyGamingStreamBox`, since a host whose aspect is not this
+ * screen's would otherwise be letterboxed). Touch is direct (tap, drag, long-press right
  * click, two-finger scroll and pinch) or a trackpad emulation. Wheel events are
  * classified as discrete wheel or trackpad and accumulated in fractional
  * notches so no distance is lost; a macOS wheel, whose deltas the system
@@ -5273,6 +5275,10 @@ export class Input {
             if (this.inputAttached && this.gamingMode) {
                 this._armPointerLock();
                 this.requestKeyboardLock();
+                // The transition can re-run the core's own box maths after the
+                // mode was entered; the fill has to survive it. Idempotent while
+                // gaming mode holds, so re-applying costs nothing.
+                this._applyGamingStreamBox(true);
             }
         } else {
             this._fullscreenKeyboardLock = false;
@@ -5509,11 +5515,19 @@ export class Input {
         this._exitPointerLock();
     }
 
-    /** Releases a stream-held pointer lock, hiding the server-drawn pointer. */
+    /**
+     * Releases a stream-held pointer lock, hiding the server-drawn pointer.
+     *
+     * The compositing flag is cleared here as well as in `_pointerLock`: this
+     * runs from `detach()`, which has already removed the pointerlockchange
+     * listener, so the transition would otherwise never be reported and the
+     * server would keep drawing its own pointer over a page that draws one too.
+     */
     _exitPointerLock() {
         if (this._isStreamLocked()) {
             document.exitPointerLock();
             this.send("p,0");
+            this.send("SET_NATIVE_CURSOR_RENDERING,0");
             console.log("remote pointer visibility to: False");
         }
     }
@@ -5613,9 +5627,85 @@ export class Input {
         if (!active) {
             this.releaseKeyboardLock();
         }
+        this._applyGamingStreamBox(active);
         if (this.ongamingmode) {
             this.ongamingmode(active);
         }
+    }
+
+    /**
+     * Stretches the stream over the whole screen for as long as gaming mode
+     * lasts.
+     *
+     * The stream is drawn with `object-fit: contain`, so a host whose aspect
+     * ratio does not match the screen is letterboxed: a 1718x926 desktop
+     * (1.855) inside a 16:9 viewport is fitted to 1920x1035, leaving a bar
+     * above and below, and the mode that is supposed to be edge to edge shows
+     * a black border instead. `fill` stretches the frame onto the whole
+     * viewport, which costs a ~4% aspect distortion here and is the only
+     * client-side way to fill: the server clamps the wire to the host's own
+     * native size, so its aspect ratio cannot follow this screen's.
+     *
+     * The pointer mapping stays exact either way: `_sinkBox()` treats the
+     * element's own box as the picture when `objectFit` is `fill`, and
+     * `_applySinkCoordinates()` scales each axis by frame/box independently —
+     * a stretched frame therefore still maps 1:1 per axis, both for clicks
+     * (`m,x,y`) and for the locked relative motion gaming mode sends (`m2`).
+     *
+     * The style it replaces is restored on exit, so a manual resolution's own
+     * box survives the round trip.
+     * @param {boolean} active Whether gaming mode is on.
+     */
+    _applyGamingStreamBox(active) {
+        const targets = this._gamingSinkTargets();
+        if (active) {
+            // `Array.isArray` rather than a constructor field: the list only
+            // exists once this ran, and `undefined` must read as "not saved".
+            // Idempotent, because the fullscreen transition re-runs this.
+            if (Array.isArray(this._gamingStyleBefore)) return;
+            this._gamingStyleBefore = targets.map((el) => [el, el.style.cssText]);
+            for (const el of targets) {
+                // `fixed` against the viewport, not `absolute` inside the
+                // container: the container's height comes from `#app`'s flex
+                // layout, and a mode that fills only the container still leaves
+                // a strip of page background on screen. In fullscreen the
+                // viewport *is* the screen, which is the box this mode wants.
+                el.style.position = 'fixed';
+                el.style.top = '0';
+                el.style.left = '0';
+                el.style.width = '100vw';
+                el.style.height = '100vh';
+                el.style.maxWidth = 'none';
+                el.style.maxHeight = 'none';
+                el.style.objectFit = 'fill';
+            }
+            return;
+        }
+        if (!Array.isArray(this._gamingStyleBefore)) return;
+        for (const [el, cssText] of this._gamingStyleBefore) {
+            if (el.style) el.style.cssText = cssText;
+        }
+        this._gamingStyleBefore = null;
+    }
+
+    /**
+     * The elements the picture is actually presented on, for
+     * `_applyGamingStreamBox`: this input surface plus whichever sink this core
+     * renders into. The sink is not known here — a wr-core `<video>`, a
+     * ws-core canvas, or the worker canvas a WebCodecs path presents on — so
+     * they are collected by id (`_streamLockTargets` already lists them) and by
+     * the container's own `<video>` for a sink whose id differs.
+     * @returns {Element[]} Deduplicated, never empty for an attached surface.
+     */
+    _gamingSinkTargets() {
+        const targets = this._streamLockTargets();
+        const container = document.querySelector('.video-container');
+        if (container) {
+            for (const video of container.querySelectorAll('video')) {
+                if (!targets.includes(video)) targets.push(video);
+            }
+        }
+        return targets;
     }
 
     /**
