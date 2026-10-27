@@ -333,8 +333,8 @@ export function streamMeters(latest) {
   // Under ten percent a decimal shows (two at most, `shownNumber`), so a light
   // session does not read as idle; at or above ten a whole number keeps the bar's
   // text still while the sample moves by fractions of a percent.
-  const used = (key, percent) => (
-    { key, percent, text: `${percent < 10 ? shownNumber(percent) : Math.round(percent)}%`, detail: '', bar: true });
+  const used = (key, percent, detail = '') => (
+    { key, percent, text: `${percent < 10 ? shownNumber(percent) : Math.round(percent)}%`, detail, bar: true });
   const amounts = (key, gotten, total) => ({
     key,
     percent: share(gotten, total),
@@ -342,7 +342,17 @@ export function streamMeters(latest) {
     detail: `${Math.round(share(gotten, total))}%`,
     bar: false,
   });
-  const meters = [used('cpu', Math.min(100, latest.cpu_percent))];
+  // `cpu_percent` is the **whole machine's** utilisation (0-100 across every
+  // logical core) — the figure Task Manager shows, so the bar answers "how
+  // loaded is this box". It is not this process's per-core share: dividing it
+  // by a core count, or scaling it, would turn a healthy host into a 100% one.
+  // `process_cpu_percent` carries that older per-core figure (which can exceed
+  // 100) and is only offered as the hover text, to tell whether the stream
+  // server itself is the load.
+  const processShare = typeof latest.process_cpu_percent === 'number'
+    ? `stream-server ${shownNumber(latest.process_cpu_percent)}%`
+    : '';
+  const meters = [used('cpu', Math.max(0, Math.min(100, latest.cpu_percent)), processShare)];
   if (typeof latest.gpu_percent === 'number') {
     meters.push(used('gpu', Math.min(100, latest.gpu_percent)));
   }

@@ -98,7 +98,9 @@ export const SERVER_FRESH_MS = 3000;
 
 /**
  * @typedef {Object<string, (number|boolean|string)>} StreamSample One second's
- *     figures: the server's (`cpu_percent`, `mem_used`, `mem_total`,
+ *     figures: the server's (`cpu_percent`, whole-machine CPU, 0-100 across all
+ *     logical cores; `process_cpu_percent`, that same server process's per-core
+ *     share, which may exceed 100; `mem_used`, `mem_total`,
  *     `gpu_percent`, `gpu_mem_used`, `gpu_mem_total`, `encoded_fps`,
  *     `encode_ms`, `pipeline_ms`, `rtt_ms`, `throttled`) where it sent them, and
  *     `server`, whether it did, this page's (`fps`, the frames the screen was
