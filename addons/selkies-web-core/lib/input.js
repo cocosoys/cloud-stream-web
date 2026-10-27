@@ -5275,9 +5275,12 @@ export class Input {
             if (this.inputAttached && this.gamingMode) {
                 this._armPointerLock();
                 this.requestKeyboardLock();
-                // The transition can re-run the core's own box maths after the
-                // mode was entered; the fill has to survive it. Idempotent while
-                // gaming mode holds, so re-applying costs nothing.
+                // The transition re-runs the core's own box maths after the
+                // mode was entered — `resize` lands here as
+                // `resetToWindowResolution` (auto mode) or `applyManualStyle`
+                // with `object-fit: contain` (manual mode) — so the fill has to
+                // survive it. This re-apply is the whole point: `_applyGamingStreamBox`
+                // rewrites the style on every call.
                 this._applyGamingStreamBox(true);
             }
         } else {
@@ -5637,55 +5640,66 @@ export class Input {
      * Stretches the stream over the whole screen for as long as gaming mode
      * lasts.
      *
-     * The stream is drawn with `object-fit: contain`, so a host whose aspect
-     * ratio does not match the screen is letterboxed: a 1718x926 desktop
-     * (1.855) inside a 16:9 viewport is fitted to 1920x1035, leaving a bar
-     * above and below, and the mode that is supposed to be edge to edge shows
-     * a black border instead. `fill` stretches the frame onto the whole
-     * viewport, which costs a ~4% aspect distortion here and is the only
-     * client-side way to fill: the server clamps the wire to the host's own
-     * native size, so its aspect ratio cannot follow this screen's.
+     * A host whose aspect ratio is not this screen's is letterboxed, because
+     * the stream is drawn with `object-fit: contain`: a 1718x926 desktop
+     * (1.855) inside a 16:9 viewport is fitted to 1920x1035 and leaves a bar
+     * above and below, so a mode that should be edge to edge shows a black
+     * border. With the host on 16:9 (1920x1080) fit and fill agree and nothing
+     * is distorted; on any other native size `fill` stretches the frame onto
+     * the viewport by the mismatch (a few percent), which is the only
+     * client-side way to fill — the server clamps the wire to the host's
+     * native size (#66), so the stream's aspect cannot follow this screen's.
      *
      * The pointer mapping stays exact either way: `_sinkBox()` treats the
      * element's own box as the picture when `objectFit` is `fill`, and
      * `_applySinkCoordinates()` scales each axis by frame/box independently —
-     * a stretched frame therefore still maps 1:1 per axis, both for clicks
-     * (`m,x,y`) and for the locked relative motion gaming mode sends (`m2`).
+     * a stretched frame still maps 1:1 per axis, for clicks (`m,x,y`) and for
+     * the locked relative motion gaming mode sends (`m2`).
      *
-     * The style it replaces is restored on exit, so a manual resolution's own
-     * box survives the round trip.
+     * The rule lives in a stylesheet with `!important`, keyed on an attribute
+     * this mode puts on each sink, **not** in inline styles. The page's own
+     * resize maths writes `width`/`height`/`object-fit` inline — and it is
+     * debounced, so it lands after the fullscreen transition
+     * (`resetToWindowResolution` in auto mode, `applyManualStyle` with
+     * `contain` in manual mode). Inline styles cannot win that race; an
+     * `!important` attribute rule does, and it holds through every later
+     * recompute without needing to be re-applied. Nothing is restored on exit:
+     * the inline style the core wrote last is the one it wants for the window
+     * the page is in now.
      * @param {boolean} active Whether gaming mode is on.
      */
     _applyGamingStreamBox(active) {
-        const targets = this._gamingSinkTargets();
-        if (active) {
-            // `Array.isArray` rather than a constructor field: the list only
-            // exists once this ran, and `undefined` must read as "not saved".
-            // Idempotent, because the fullscreen transition re-runs this.
-            if (Array.isArray(this._gamingStyleBefore)) return;
-            this._gamingStyleBefore = targets.map((el) => [el, el.style.cssText]);
-            for (const el of targets) {
-                // `fixed` against the viewport, not `absolute` inside the
-                // container: the container's height comes from `#app`'s flex
-                // layout, and a mode that fills only the container still leaves
-                // a strip of page background on screen. In fullscreen the
-                // viewport *is* the screen, which is the box this mode wants.
-                el.style.position = 'fixed';
-                el.style.top = '0';
-                el.style.left = '0';
-                el.style.width = '100vw';
-                el.style.height = '100vh';
-                el.style.maxWidth = 'none';
-                el.style.maxHeight = 'none';
-                el.style.objectFit = 'fill';
+        const styleId = 'selkies-gaming-fill';
+        const marker = 'data-selkies-gaming-fill';
+        if (!active) {
+            for (const el of this._gamingSinkTargets()) {
+                el.removeAttribute(marker);
             }
+            const style = document.getElementById(styleId);
+            if (style) style.remove();
             return;
         }
-        if (!Array.isArray(this._gamingStyleBefore)) return;
-        for (const [el, cssText] of this._gamingStyleBefore) {
-            if (el.style) el.style.cssText = cssText;
+        if (!document.getElementById(styleId)) {
+            const style = document.createElement('style');
+            style.id = styleId;
+            // `100%` on a `fixed` box is the viewport minus the scrollbar,
+            // where `100vw` includes it. Fullscreen has neither, but the mode
+            // is armed before the transition lands.
+            style.textContent = `[${marker}] {\n`
+                + '  position: fixed !important;\n'
+                + '  top: 0 !important;\n'
+                + '  left: 0 !important;\n'
+                + '  width: 100% !important;\n'
+                + '  height: 100% !important;\n'
+                + '  max-width: none !important;\n'
+                + '  max-height: none !important;\n'
+                + '  object-fit: fill !important;\n'
+                + '}';
+            document.head.appendChild(style);
         }
-        this._gamingStyleBefore = null;
+        for (const el of this._gamingSinkTargets()) {
+            el.setAttribute(marker, '');
+        }
     }
 
     /**
