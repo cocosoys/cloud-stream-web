@@ -28,6 +28,7 @@ import {
   streamReport,
   seriesOf,
   graphPath,
+  shownNumber,
 } from "../../../selkies-web-core/lib/stream-stats-view.js";
 import { STATS_EVENT } from "../../../selkies-web-core/lib/stream-stats.js";
 import StatusIcon from "./StatusIcon.jsx";
@@ -57,6 +58,11 @@ const UplinkIcon = ({ kind }) => (
 /**
  * One graph: its name, the value under the pointer or else the newest, and up
  * to two series against one axis whose top is `max`.
+ *
+ * The readout shows a sample's own float (`59.93827160493827`), so it is printed
+ * through `shownNumber` — the panel keeps two decimals everywhere (see that
+ * helper's note); the hover box and the screen reader's label read the same text
+ * the eye does.
  * @param {{label: string, unit: string, series: Array<{name: string, values: number[]}>, max: number}} props
  */
 function Graph({ label, unit, series, max }) {
@@ -67,6 +73,7 @@ function Graph({ label, unit, series, max }) {
   );
   const count = series[0].values.length;
   const at = hover !== null && hover < count ? hover : count - 1;
+  const shownAt = (s) => (at >= 0 ? shownNumber(s.values[at]) : "0");
   const onMove = (e) => {
     const box = e.currentTarget.getBoundingClientRect();
     const xs = paths[0].xs;
@@ -82,7 +89,7 @@ function Graph({ label, unit, series, max }) {
           {series.map((s, i) => (
             <span key={s.name || i} className="stream-graph-value">
               {series.length > 1 && <i className={`stream-key series-${i + 1}`} />}
-              <b>{at >= 0 ? s.values[at] : 0}</b>
+              <b>{shownAt(s)}</b>
               {series.length > 1 ? ` ${s.name}` : ` ${unit}`}
             </span>
           ))}
@@ -95,7 +102,7 @@ function Graph({ label, unit, series, max }) {
         onPointerMove={onMove}
         onPointerLeave={() => setHover(null)}
         role="img"
-        aria-label={`${label}: ${series.map((s) => `${at >= 0 ? s.values[at] : 0} ${s.name || unit}`).join(", ")}`}
+        aria-label={`${label}: ${series.map((s) => `${shownAt(s)} ${s.name || unit}`).join(", ")}`}
       >
         <line className="stream-graph-grid" x1="0" x2={GRAPH_WIDTH} y1={GRAPH_HEIGHT / 2} y2={GRAPH_HEIGHT / 2} />
         {paths.map((p, i) => (
@@ -108,7 +115,7 @@ function Graph({ label, unit, series, max }) {
           <line className="stream-graph-cross" x1={paths[0].xs[at]} x2={paths[0].xs[at]} y1="0" y2={GRAPH_HEIGHT} />
         )}
       </svg>
-      <span className="stream-graph-max">{`${Math.round(max)} ${unit}`}</span>
+      <span className="stream-graph-max">{`${shownNumber(max)} ${unit}`}</span>
     </div>
   );
 }

@@ -25,6 +25,7 @@ import { STATS_EVENT, type StreamClient, type StreamInfo, type StreamSample } fr
 import {
 	graphPath,
 	seriesOf,
+	shownNumber,
 	streamMeters,
 	streamReport,
 	streamRows,
@@ -149,6 +150,9 @@ function Graph({ label, unit, series, max }: GraphProps) {
 	);
 	const count = series[0].values.length;
 	const at = hover !== null && hover < count ? hover : count - 1;
+	// A sample's own float printed raw (`59.93827160493827`); `shownNumber` keeps
+	// the panel at two decimals, as the shared view module documents.
+	const shownAt = (s: GraphProps['series'][number]) => (at >= 0 ? shownNumber(s.values[at]) : '0');
 	const onMove = (e: React.PointerEvent<SVGSVGElement>) => {
 		const box = e.currentTarget.getBoundingClientRect();
 		const xs = paths[0].xs;
@@ -166,7 +170,7 @@ function Graph({ label, unit, series, max }: GraphProps) {
 							{series.length > 1 && (
 								<i className="mr-1 inline-block h-0.5 w-2.5 rounded-sm align-middle" style={{ background: SERIES_STROKES[i] }} />
 							)}
-							<b className="text-sm text-foreground">{at >= 0 ? s.values[at] : 0}</b>
+							<b className="text-sm text-foreground">{shownAt(s)}</b>
 							{series.length > 1 ? ` ${s.name}` : ` ${unit}`}
 						</span>
 					))}
@@ -179,7 +183,7 @@ function Graph({ label, unit, series, max }: GraphProps) {
 				onPointerMove={onMove}
 				onPointerLeave={() => setHover(null)}
 				role="img"
-				aria-label={`${label}: ${series.map((s) => `${at >= 0 ? s.values[at] : 0} ${s.name || unit}`).join(', ')}`}
+				aria-label={`${label}: ${series.map((s) => `${shownAt(s)} ${s.name || unit}`).join(', ')}`}
 			>
 				{paths.map((p, i) => (
 					<g key={i}>
@@ -194,7 +198,7 @@ function Graph({ label, unit, series, max }: GraphProps) {
 				)}
 			</svg>
 			<span className="pointer-events-none absolute bottom-7 right-1 rounded-sm bg-muted px-1 text-[11px] text-muted-foreground">
-				{`${Math.round(max)} ${unit}`}
+				{`${shownNumber(max)} ${unit}`}
 			</span>
 		</div>
 	);

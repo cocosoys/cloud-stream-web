@@ -63,6 +63,32 @@
 
 const CODEC_NAMES = { h264: 'H.264', h265: 'H.265', hevc: 'H.265', av1: 'AV1', vp8: 'VP8', vp9: 'VP9', jpeg: 'JPEG' };
 
+/**
+ * A figure the way the stats show it: **two decimals at most**.
+ *
+ * The numbers a sample carries are raw floats — the server reports
+ * `encode_ms: 4.733333333333333`, the page derives `mbps: 12.3456789`, a graph's
+ * hovered point is whatever the sample held — and printing them raw made the
+ * panel both unreadable (`4.733333333333333 ms`) and visibly jittery between
+ * samples that read the same to a human. Every number that reaches a tile, the
+ * strip, a graph's readout, a host meter or the copied report goes through here,
+ * so the whole panel has one precision and a dashboard that adds a figure cannot
+ * quietly reintroduce a third decimal.
+ *
+ * It is deliberately **not** `toFixed(2)`: that pads integers into `12.00`, and a
+ * frame count or a percentage would then read as a measurement it is not. The
+ * value is rounded to two decimals and printed shortest, so `4.7333…` reads
+ * `4.73`, `12` reads `12`, and `12.5` reads `12.5`.
+ *
+ * @param {number} value
+ * @returns {string}
+ */
+export function shownNumber(value) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return String(value ?? '');
+  // `Math.round(x * 100) / 100`, not `toFixed`, so no `.00` tail can appear.
+  return String(Math.round(value * 100) / 100);
+}
+
 /** @param {string} codec @returns {string} */
 const codecName = (codec) => CODEC_NAMES[String(codec || '').toLowerCase()] || String(codec || '').toUpperCase();
 /** @param {string} path @returns {string} */
@@ -242,9 +268,11 @@ function figure(latest, key, history = null) {
   if (value === null) return { value: '\u2013', detail: '', warn: false };
   const range = RANGES[key] && RANGES[key].map(of);
   const target = key === 'video_mbps' ? of('target_mbps') : null;
+  // `shownNumber` (two decimals) on every figure: the sample's floats are raw.
   return {
-    value: `${value}${target ? ` / ${target}` : ''}${unit === '%' ? '%' : unit ? ` ${unit}` : ''}`,
-    detail: range && range[0] !== null && range[1] !== null ? `${range[0]}\u2013${range[1]}` : '',
+    value: `${shownNumber(value)}${target ? ` / ${shownNumber(target)}` : ''}${unit === '%' ? '%' : unit ? ` ${unit}` : ''}`,
+    detail: range && range[0] !== null && range[1] !== null
+      ? `${shownNumber(range[0])}\u2013${shownNumber(range[1])}` : '',
     warn: !!target && value > OVERSHOOT * target,
   };
 }
@@ -277,17 +305,17 @@ export function streamTiles(latest, transport, history = null) {
  * @returns {Array<{key: string, value: string, warn: boolean}>}
  */
 export function streamStrip(latest, transport) {
-  const fps = latest && typeof latest.fps === 'number' ? `${latest.fps} fps` : '\u2013';
+  const fps = latest && typeof latest.fps === 'number' ? `${shownNumber(latest.fps)} fps` : '\u2013';
   const keys = transport === 'webrtc' ? ['video_mbps', 'send_ms'] : ['video_mbps', 'send_ms', 'rtt_ms'];
   return [{ key: 'fps', value: fps, warn: false }, ...keys.map((key) => {
     if (key !== 'rtt_ms') return { key, ...figure(latest, key) };
-    const rtt = latest && typeof latest.rtt_ms === 'number' ? `${latest.rtt_ms} ms` : '\u2013';
+    const rtt = latest && typeof latest.rtt_ms === 'number' ? `${shownNumber(latest.rtt_ms)} ms` : '\u2013';
     return { key, value: rtt, warn: false };
   })];
 }
 
 /** @param {number} bytes @returns {string} */
-const gib = (bytes) => `${(bytes / 1073741824).toFixed(1)} GiB`;
+const gib = (bytes) => `${shownNumber(bytes / 1073741824)} GiB`;
 
 /**
  * The host meters: the utilizations first and the memories under them, so the
@@ -302,9 +330,11 @@ const gib = (bytes) => `${(bytes / 1073741824).toFixed(1)} GiB`;
 export function streamMeters(latest) {
   if (!latest || typeof latest.cpu_percent !== 'number') return [];
   const share = (used, total) => (total > 0 ? Math.min(100, (100 * used) / total) : 0);
-  // Under ten percent a tenth shows, so a light session does not read as idle.
+  // Under ten percent a decimal shows (two at most, `shownNumber`), so a light
+  // session does not read as idle; at or above ten a whole number keeps the bar's
+  // text still while the sample moves by fractions of a percent.
   const used = (key, percent) => (
-    { key, percent, text: `${percent < 10 ? percent.toFixed(1) : Math.round(percent)}%`, detail: '', bar: true });
+    { key, percent, text: `${percent < 10 ? shownNumber(percent) : Math.round(percent)}%`, detail: '', bar: true });
   const amounts = (key, gotten, total) => ({
     key,
     percent: share(gotten, total),
@@ -378,7 +408,7 @@ export function streamReport(info, client, latest) {
   lines.push(...rows.map((row) => row.reason).filter(Boolean).map((reason) => `  ${reason}`));
   if (latest) {
     const shown = ['fps', 'encoded_fps', 'mbps', 'rtt_ms'].filter((key) => typeof latest[key] === 'number')
-      .map((key) => `${key} ${latest[key]}`);
+      .map((key) => `${key} ${shownNumber(latest[key])}`);
     lines.push(joined(shown), ...streamTiles(latest, client ? client.transport : 'websockets').map((tile) =>
       `${tile.label}: ${tile.value}${tile.detail ? ` (${tile.detail})` : ''}${tile.warn ? ' [!]' : ''}`),
       ...streamMeters(latest).map((meter) => `${meter.key}: ${joined([meter.text, meter.detail])}`));
