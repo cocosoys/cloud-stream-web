@@ -1,0 +1,17 @@
+# 统一换行符为 LF：仓库内含大量 Linux 脚本 / Dockerfile / Makefile，
+# 若被转成 CRLF 会在容器内执行失败
+* text=auto eol=lf
+
+# 明确二进制文件，避免被当作文本处理
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.pdf binary
+*.zip binary
+*.gz binary
+*.whl binary
