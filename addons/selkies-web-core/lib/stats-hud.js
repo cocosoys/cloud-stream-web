@@ -28,6 +28,8 @@ import { STATS_EVENT } from './stream-stats.js';
 
 /** Key that toggles the overlay. F3 is unbound in the browser and in MC. */
 const HOTKEY = 'F3';
+/** Key that toggles the microphone, for use while the pointer is locked. */
+const MIC_HOTKEY = 'F4';
 /** Remembered across loads; the overlay is worth keeping on while tuning. */
 const STORE_KEY = 'cloudstream_stats_hud';
 
@@ -110,6 +112,20 @@ export function installStatsHud() {
     .k { color: #8fa3bd; }
     .v { font-variant-numeric: tabular-nums; white-space: nowrap; }
     .hint { margin-top: 4px; color: #64748b; font-size: 10px; }
+    .controls {
+      display: flex; gap: 6px; margin-top: 7px; padding-top: 7px;
+      border-top: 1px solid rgba(120, 160, 220, 0.18);
+      /* The panel is click-through so it never eats a click meant for the
+         stream; these two are the exception. */
+      pointer-events: auto;
+    }
+    .btn {
+      flex: 1; font: inherit; font-size: 11px; color: #cbd5e1; cursor: pointer;
+      background: rgba(255, 255, 255, 0.06); border-radius: 5px;
+      border: 1px solid rgba(120, 160, 220, 0.25); padding: 3px 0;
+    }
+    .btn:hover { background: rgba(255, 255, 255, 0.12); }
+    .btn[data-on="1"] { color: #06121f; background: #5eead4; border-color: #5eead4; }
   `;
   const panel = document.createElement('div');
   panel.className = 'panel';
@@ -128,9 +144,20 @@ export function installStatsHud() {
     cells[row.key] = value;
     panel.append(line);
   }
+  const controls = document.createElement('div');
+  controls.className = 'controls';
+  const audioBtn = document.createElement('button');
+  const micBtn = document.createElement('button');
+  for (const btn of [audioBtn, micBtn]) {
+    btn.className = 'btn';
+    btn.type = 'button';
+  }
+  controls.append(audioBtn, micBtn);
+  panel.append(controls);
+
   const hint = document.createElement('div');
   hint.className = 'hint';
-  hint.textContent = `F3 hides this`;
+  hint.textContent = `F3 hides this \u00b7 F4 mic`;
   panel.append(hint);
   root.append(style, panel);
   document.body.append(host);
@@ -162,7 +189,7 @@ export function installStatsHud() {
     // full of dashes with no explanation.
     hint.textContent = sample.server === false
       ? 'waiting for the server sample\u2026'
-      : 'F3 hides this';
+      : 'F3 hides this \u00b7 F4 mic';
   };
 
   const show = (open) => {
@@ -178,8 +205,54 @@ export function installStatsHud() {
   };
 
   window.addEventListener(STATS_EVENT, render);
+
+  /**
+   * Pipeline toggles. Both are `pipelineControl` posts — the same message a
+   * dashboard sends (`selkies-wr-core.js:2051`) — because this page has no
+   * dashboard, and without them neither the microphone nor the mute button is
+   * reachable at all: the core only ever changes those on a dashboard's word.
+   *
+   * The labels mirror what the core reports back (`sidebarButtonStatusUpdate`,
+   * which carries the real state after a permission prompt refuses), never the
+   * click itself.
+   */
+  let audioOn = true;
+  let micOn = false;
+  const paint = () => {
+    audioBtn.dataset.on = audioOn ? '1' : '0';
+    micBtn.dataset.on = micOn ? '1' : '0';
+    audioBtn.textContent = audioOn ? 'Sound on' : 'Sound off';
+    micBtn.textContent = micOn ? 'Mic on' : 'Mic off';
+  };
+  const control = (pipeline, enabled) => {
+    try {
+      window.postMessage({ type: 'pipelineControl', pipeline, enabled }, window.location.origin);
+    } catch (_) {
+      // Cross-origin parent: nothing to do, the post is for this window only.
+    }
+  };
+  audioBtn.addEventListener('click', () => control('audio', !audioOn));
+  micBtn.addEventListener('click', () => control('microphone', !micOn));
+  window.addEventListener('message', (event) => {
+    if (event.origin !== window.location.origin) return;
+    const data = event.data;
+    if (!data || data.type !== 'sidebarButtonStatusUpdate') return;
+    if (typeof data.audio === 'boolean') audioOn = data.audio;
+    if (typeof data.microphone === 'boolean') micOn = data.microphone;
+    paint();
+  });
+  paint();
+
   window.addEventListener('keydown', (event) => {
-    if (event.key !== HOTKEY || event.repeat) return;
+    if (event.repeat) return;
+    // F4 reaches the microphone without leaving pointer lock: in a locked
+    // session no click can land on these buttons.
+    if (event.key === MIC_HOTKEY) {
+      event.preventDefault();
+      control('microphone', !micOn);
+      return;
+    }
+    if (event.key !== HOTKEY) return;
     // F3 is a browser "find again" on some engines and a console shortcut in
     // others; the overlay is the only thing it should do here.
     event.preventDefault();
