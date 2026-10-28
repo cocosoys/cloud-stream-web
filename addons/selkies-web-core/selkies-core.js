@@ -28,6 +28,7 @@
 
 import { getStorageAppName } from "./lib/util.js";
 import { titleFromManifest } from "./lib/page-title.js";
+import { installStatsHud } from "./lib/stats-hud.js";
 import webrtc from "./selkies-wr-core";
 import websockets from "./selkies-ws-core";
 
@@ -170,6 +171,9 @@ if (typeof window !== 'undefined') {
         titleFromManifest();
         const streamingMode = determineStreamingMode();
         switchStreamingMode(streamingMode);
+        // After the core is up: the overlay announces `statsOpen` on the
+        // window, and the core is the only listener for it.
+        installStatsHud();
     };
 }
 
