@@ -1475,6 +1475,24 @@ function Sidebar() {
   const [macCmdAsCtrl, setMacCmdAsCtrl] = useConditionalSetting(
     MAC_CMD_AS_CTRL_SPEC, serverSettings, conditionalCtx, [serverSettings]);
   /**
+   * Gain applied to pointer-locked motion (#74). Lives in the core, not in the
+   * settings payload: it is a per-browser preference about feel, carries no
+   * server meaning, and the core stores it under its own key so the value
+   * survives a reload without a `SETTINGS` round trip.
+   */
+  const [pointerGain, setPointerGainValue] = useState(() => {
+    const core = typeof window !== "undefined" ? window.webrtcInput : null;
+    const value = Number(core?.pointerGain);
+    return Number.isFinite(value) && value > 0 ? value : 1;
+  });
+  const handlePointerGainChange = useCallback((event) => {
+    const value = Number(event.target.value);
+    if (!Number.isFinite(value) || value <= 0) return;
+    setPointerGainValue(value);
+    const core = typeof window !== "undefined" ? window.webrtcInput : null;
+    if (core && typeof core.setPointerGain === "function") core.setPointerGain(value);
+  }, []);
+  /**
    * The cursor value the core reports as in effect (multi-monitor forces
    * browser cursors on), `null` until reported; displayed over the stored
    * preference so the toggle cannot lie about the live state.
@@ -3760,6 +3778,24 @@ function Sidebar() {
                         </button>
                       </div>
                     )}
+                    <div className="dev-setting-item">
+                      <label htmlFor="pointerGainSlider">
+                        {t("sections.screen.pointerGainLabel", "Pointer sensitivity")}
+                        {" "}
+                        {Math.round(pointerGain * 100)}%
+                      </label>
+                      <input
+                        type="range"
+                        id="pointerGainSlider"
+                        min={0.2}
+                        max={2}
+                        step={0.05}
+                        value={pointerGain}
+                        onChange={handlePointerGainChange}
+                        title={t("sections.screen.pointerGainTitle",
+                          "How far the view turns for the same mouse movement under pointer lock. 100% passes the browser's movement through unchanged, which matches playing on the host itself.")}
+                      />
+                    </div>
                     {(renderableSettings.macCmdAsCtrl ?? false) && (
                       <div className="dev-setting-item toggle-item">
                         <label htmlFor="macCmdAsCtrlToggle">

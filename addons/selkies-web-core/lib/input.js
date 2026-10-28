@@ -1593,6 +1593,11 @@ export class Input {
         this._relCarryX = 0;
         this._relCarryY = 0;
         this._pointerScaleFrame = null;
+        /**
+         * Multiplier applied to pointer-locked relative motion, 1 meaning the
+         * browser's delta reaches the server unchanged (`_relativeGain`).
+         */
+        this.pointerGain = Input._storedPointerGain();
         this._pendingMove = null;
         this._moveFlushScheduled = false;
         /** When the last pointer motion message went out (`performance.now()`). */
@@ -1781,6 +1786,25 @@ export class Input {
     /** Whether the next lock request asks for raw movement. */
     static _asksRawMotion() {
         return Input.rawPointerMotion && !Input._rawMotionRefused;
+    }
+
+    /** Storage key the pointer-locked gain is kept under (`setPointerGain`). */
+    static POINTER_GAIN_KEY = 'selkies-pointer-gain';
+
+    /**
+     * The relative-motion gain this page last stored, or 1.
+     *
+     * 1 means "send the browser's delta as it is", which is what a game expects
+     * from pointer lock: the same physical distance turns the camera the same
+     * amount, whatever the size of the stream box on this page.
+     */
+    static _storedPointerGain() {
+        try {
+            const raw = window.localStorage.getItem(Input.POINTER_GAIN_KEY);
+            const value = raw === null ? NaN : Number(raw);
+            if (Number.isFinite(value) && value > 0) return Math.min(value, 4);
+        } catch (e) { /* storage unavailable */ }
+        return 1;
     }
 
     /**
@@ -3858,10 +3882,10 @@ export class Input {
     /**
      * Server pixels per CSS pixel, by whichever mapping absolute coordinates use.
      *
-     * A relative delta covers the same ground as the absolute coordinates it
-     * stands in for, so it carries the same scale. Scaling it by the device
-     * pixel ratio alone leaves a pointer-locked flick short (or long) by the
-     * stream box ratio in every mode that maps through the box.
+     * Absolute only. It used to serve pointer-locked deltas as well, on the
+     * reasoning that a delta covers the same ground as the coordinates it
+     * stands in for; that reasoning holds for a cursor and fails for a camera
+     * (see `_relativeToServer`, #74).
      *
      * Measuring the box reads layout, so the answer is held for the rest of the
      * frame: the trackpad path is not coalesced, and every touch event of a
@@ -3907,10 +3931,42 @@ export class Input {
         return [outX, outY];
     }
 
-    /** Scale a CSS-pixel relative motion onto the wire's server pixels. */
+    /**
+     * Scale a CSS-pixel relative motion onto the wire.
+     *
+     * Pointer-locked motion is the one place the stream box's scale does NOT
+     * belong. `_pointerScale` exists to make an absolute position land on the
+     * right remote pixel when the stream is drawn smaller or larger than its
+     * frame; a locked pointer has no remote pixel to land on, and a game reads
+     * the delta as camera rotation, so multiplying by the box ratio turns into
+     * a sensitivity that changes with the window size. It also amplified the
+     * deltas past the host's mouse-acceleration thresholds — the observed
+     * "nudge the mouse, the view whips around" (#74).
+     *
+     * What is left is `pointerGain`: 1 by default (the browser's delta reaches
+     * the server unchanged, matching `unadjustedMovement`), adjustable for
+     * players who want a different feel (`setPointerGain`). Absolute coordinates
+     * still go through `_pointerScale` — clicks must stay accurate.
+     */
     _relativeToServer(cssX, cssY) {
-        const scale = this._pointerScale();
-        return this._quantizeRelative(cssX * scale.x, cssY * scale.y);
+        const gain = this.pointerGain;
+        return this._quantizeRelative(cssX * gain, cssY * gain);
+    }
+
+    /**
+     * Sets the multiplier applied to pointer-locked motion, and stores it for
+     * this page. 1 leaves the browser's delta untouched; values are clamped to
+     * (0, 4] so a bad stored value cannot freeze or fling the pointer.
+     * @param {number} gain
+     */
+    setPointerGain(gain) {
+        const value = Number(gain);
+        const next = (Number.isFinite(value) && value > 0) ? Math.min(value, 4) : 1;
+        if (this.pointerGain === next) return;
+        this.pointerGain = next;
+        try {
+            window.localStorage.setItem(Input.POINTER_GAIN_KEY, String(next));
+        } catch (e) { /* storage unavailable */ }
     }
 
     /** Maps a touch point into `this.x`/`this.y` and moves the page-drawn cursor to it. */
