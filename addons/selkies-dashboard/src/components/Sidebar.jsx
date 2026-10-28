@@ -3783,17 +3783,19 @@ function Sidebar() {
                         {t("sections.screen.pointerGainLabel", "Pointer sensitivity")}
                         {" "}
                         {Math.round(pointerGain * 100)}%
+                        {Math.abs(pointerGain - 1) < 0.001
+                          ? ` (${t("sections.screen.pointerGainDefault", "default")})` : ""}
                       </label>
                       <input
                         type="range"
                         id="pointerGainSlider"
-                        min={0.2}
-                        max={2}
+                        min={0.25}
+                        max={3}
                         step={0.05}
                         value={pointerGain}
                         onChange={handlePointerGainChange}
                         title={t("sections.screen.pointerGainTitle",
-                          "How far the view turns for the same mouse movement under pointer lock. 100% passes the browser's movement through unchanged, which matches playing on the host itself.")}
+                          "How far the view turns for the same mouse movement under pointer lock. 100% (default) passes the browser's movement through unchanged, which matches playing on the host itself. Lower it if the view overshoots, raise it if it feels sluggish.")}
                       />
                     </div>
                     {(renderableSettings.macCmdAsCtrl ?? false) && (

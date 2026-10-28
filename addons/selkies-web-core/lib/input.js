@@ -1788,11 +1788,35 @@ export class Input {
         return Input.rawPointerMotion && !Input._rawMotionRefused;
     }
 
-    /** Storage key the pointer-locked gain is kept under (`setPointerGain`). */
-    static POINTER_GAIN_KEY = 'selkies-pointer-gain';
+    /**
+     * Gain a page uses when it has stored nothing: pass the browser's delta
+     * through untouched.
+     *
+     * 1 is the only defensible product default, because it is the one value
+     * that makes turning the view feel the same here as playing on the host:
+     * the browser's raw counts reach the game's own sensitivity curve without
+     * arithmetic in between. Everything else the page needs for a different
+     * feel is a per-player preference (the slider), not a product default.
+     */
+    static POINTER_GAIN_DEFAULT = 1;
 
     /**
-     * The relative-motion gain this page last stored, or 1.
+     * Storage key the pointer-locked gain is kept under (`setPointerGain`).
+     *
+     * Versioned: the unversioned key is where builds before #75 wrote whatever
+     * a player had dragged the slider to, and one of those leftovers (a page
+     * that had been tuned against a host with pointer acceleration still on,
+     * where ~2x was needed to compensate) would silently override any new
+     * default. Bumping the suffix retires those values once; the old key is
+     * removed on read so it cannot come back.
+     */
+    static POINTER_GAIN_KEY = 'selkies-pointer-gain-v2';
+
+    /** Retired key, dropped whenever the gain is read (#75). */
+    static POINTER_GAIN_KEY_V1 = 'selkies-pointer-gain';
+
+    /**
+     * The relative-motion gain this page last stored, or the default.
      *
      * 1 means "send the browser's delta as it is", which is what a game expects
      * from pointer lock: the same physical distance turns the camera the same
@@ -1800,11 +1824,14 @@ export class Input {
      */
     static _storedPointerGain() {
         try {
+            // Drop the pre-#75 value even when the new key holds nothing, so a
+            // stale compensation cannot outlive the reason it existed.
+            window.localStorage.removeItem(Input.POINTER_GAIN_KEY_V1);
             const raw = window.localStorage.getItem(Input.POINTER_GAIN_KEY);
             const value = raw === null ? NaN : Number(raw);
             if (Number.isFinite(value) && value > 0) return Math.min(value, 4);
         } catch (e) { /* storage unavailable */ }
-        return 1;
+        return Input.POINTER_GAIN_DEFAULT;
     }
 
     /**
@@ -5036,10 +5063,19 @@ export class Input {
         this._relCarryX = 0;
         this._relCarryY = 0;
         if (this._isStreamLocked()) {
+            // #75 diagnostic: the chain behaves completely differently in the
+            // two modes — locked motion is a relative delta on the unreliable
+            // `pointer` channel, unlocked motion is an absolute position on the
+            // ordered `control` channel, which queues when the host's input loop
+            // falls behind. "The view keeps turning after I stop" is the
+            // absolute mode's signature, so one line here answers whether the
+            // mode a player believes they are in is the mode they are in.
+            console.info('[selkies] pointer lock engaged: relative motion (m2) on the pointer channel');
             this.send("p,1");
             this.send("SET_NATIVE_CURSOR_RENDERING,1");
             this.cursorDiv.style.visibility = 'hidden';
         } else {
+            console.info('[selkies] pointer lock released: absolute motion (m) on the control channel');
             this.send("p,0");
             this.send("SET_NATIVE_CURSOR_RENDERING,0");
             this.resetKeyboard();
