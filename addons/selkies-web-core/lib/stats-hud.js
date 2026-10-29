@@ -5,13 +5,18 @@
  */
 
 /**
- * A corner overlay with the session's live figures, toggled with F3.
+ * A corner overlay with the session's live figures, shown only while the
+ * dashboard's stats section has its "Show over the stream" switch on.
  *
  * The core already collects both halves — the server's `stream_stats` and its
  * own receive side — into `window.stream_stats` (`lib/stream-stats.js`), but
  * only a dashboard that posts `statsOpen` ever reads it. So the numbers the
  * server measures (encoder target, capture-to-sent, round-trip, keyframe
  * requests) would otherwise be computed and thrown away.
+ *
+ * It has no hotkey of its own: the switch is the only way in or out. A panel
+ * that could also appear by pressing a key would be one more thing whose state
+ * disagrees with the switch that claims to own it.
  *
  * It docks to the **right** edge: the stream is the thing being watched, and a
  * panel over the top-left corner lands on whatever a game draws its own HUD in.
@@ -21,10 +26,11 @@
  * leaves only the tab, clicking again brings it back. That state is remembered,
  * so a session that wants the numbers out of the way stays that way.
  *
- * Opening the overlay posts `{type: "statsOpen", open: true}` to the same
- * window, which is exactly what a dashboard does (`selkies-wr-core.js:1933`):
- * the core then sends `_stats,1` and starts sampling its own side. Closing it
- * posts `open: false` and the server stops sending.
+ * Opening the overlay does **not** touch the subscription: the dashboard's
+ * strip already holds it (`holdStats` in `stats-hold.js`), and the section
+ * holds it too while open. Posting `statsOpen` from here as well would fight
+ * that counter — a panel closing would cut the numbers the section is still
+ * showing.
  *
  * Everything is drawn inside a shadow root and re-rendered on the
  * `selkies-stream-stats` event, once per second, with `pointer-events: none`
@@ -35,13 +41,7 @@
 
 import { STATS_EVENT } from './stream-stats.js';
 
-/** Key that toggles the overlay. F3 is unbound in the browser and in MC. */
-const HOTKEY = 'F3';
-/** Key that toggles the microphone, for use while the pointer is locked. */
-const MIC_HOTKEY = 'F4';
-/** Remembered across loads; the overlay is worth keeping on while tuning. */
-const STORE_KEY = 'cloudstream_stats_hud';
-/** Remembered separately: "on, but tucked into the edge" is a third state. */
+/** Remembered across loads: "on, but tucked into the edge" is a third state. */
 const STORE_TUCKED = 'cloudstream_stats_hud_tucked';
 
 /** One line of the overlay: a label and how to render the current sample. */
@@ -208,7 +208,7 @@ export function installStatsHud() {
 
   const hint = document.createElement('div');
   hint.className = 'hint';
-  hint.textContent = `F3 hides this \u00b7 F4 mic`;
+  hint.hidden = true;
   panel.append(hint);
 
   // The edge tab. Same gesture as the dashboard sidebar's handle: one click
@@ -225,7 +225,7 @@ export function installStatsHud() {
   root.append(style, dock);
   document.body.append(host);
 
-  /** Whether the panel is on screen, which is also the server subscription. */
+  /** Whether the panel is drawn. The subscription is the dashboard's business. */
   let shown = false;
   /** Whether the panel is tucked into the right edge (visible, but out of the way). */
   let tucked = false;
@@ -256,16 +256,6 @@ export function installStatsHud() {
     setTucked(!tucked);
   });
 
-  /** Posts what a dashboard would post: the core owns the subscription. */
-  const announce = (open) => {
-    try {
-      window.postMessage({ type: 'statsOpen', open }, window.location.origin);
-    } catch (_) {
-      // A cross-origin parent refuses the target origin; nothing else to do,
-      // the overlay still shows whatever the core collected for other reasons.
-    }
-  };
-
   const render = () => {
     if (!shown) return;
     const stats = window.stream_stats || {};
@@ -278,22 +268,20 @@ export function installStatsHud() {
     // A sample without the server's half means the subscription has not landed
     // yet (the first second after opening); say so instead of showing a room
     // full of dashes with no explanation.
-    hint.textContent = sample.server === false
-      ? 'waiting for the server sample\u2026'
-      : 'F3 hides this \u00b7 F4 mic';
+    const waiting = sample.server === false;
+    hint.hidden = !waiting;
+    hint.textContent = waiting ? 'waiting for the server sample\u2026' : '';
   };
 
+  /**
+   * The switch's state, and nothing else. The dashboard owns it (the stats
+   * section's "show over the stream" button posts `statsHud`), so this does not
+   * remember a state of its own: two memories would eventually disagree, and the
+   * loser would be whichever wrote last.
+   */
   const show = (open) => {
     shown = !!open;
-    // F3 is all-or-nothing: the dock (panel *and* tab) disappears, and with it
-    // the `_stats,1` subscription.
     dock.hidden = !shown;
-    try {
-      localStorage.setItem(STORE_KEY, shown ? '1' : '0');
-    } catch (_) {
-      // Storage disabled: the choice just does not outlive the page.
-    }
-    announce(shown);
     render();
   };
 
@@ -301,9 +289,10 @@ export function installStatsHud() {
 
   /**
    * Pipeline toggles. Both are `pipelineControl` posts — the same message a
-   * dashboard sends (`selkies-wr-core.js:2051`) — because this page has no
-   * dashboard, and without them neither the microphone nor the mute button is
-   * reachable at all: the core only ever changes those on a dashboard's word.
+   * dashboard sends (`selkies-wr-core.js:2051`). They earn their place even
+   * with a dashboard around: in a pointer-locked session no click lands on the
+   * sidebar, and these two are the only ones that keep working from over the
+   * stream.
    *
    * The labels mirror what the core reports back (`sidebarButtonStatusUpdate`,
    * which carries the real state after a permission prompt refuses), never the
@@ -329,40 +318,31 @@ export function installStatsHud() {
   window.addEventListener('message', (event) => {
     if (event.origin !== window.location.origin) return;
     const data = event.data;
-    if (!data || data.type !== 'sidebarButtonStatusUpdate') return;
+    if (!data) return;
+    // The stats section's "show over the stream" switch, posted by the
+    // dashboard (`Sidebar.jsx`). Every state change arrives here; the panel
+    // has no other way to be shown.
+    if (data.type === 'statsHud') {
+      show(!!data.open);
+      return;
+    }
+    if (data.type !== 'sidebarButtonStatusUpdate') return;
     if (typeof data.audio === 'boolean') audioOn = data.audio;
     if (typeof data.microphone === 'boolean') micOn = data.microphone;
     paint();
   });
   paint();
 
-  window.addEventListener('keydown', (event) => {
-    if (event.repeat) return;
-    // F4 reaches the microphone without leaving pointer lock: in a locked
-    // session no click can land on these buttons.
-    if (event.key === MIC_HOTKEY) {
-      event.preventDefault();
-      control('microphone', !micOn);
-      return;
-    }
-    if (event.key !== HOTKEY) return;
-    // F3 is a browser "find again" on some engines and a console shortcut in
-    // others; the overlay is the only thing it should do here.
-    event.preventDefault();
-    show(!shown);
-  }, true);
-
-  // Default on: the figures are the point, and the first session after an
-  // update should show them without hunting for a hotkey. A session that
-  // turned it off keeps it off.
-  let remembered = '1';
+  // Remembered: "tucked into the edge" outlives the page. Whether the panel is
+  // on at all is the dashboard's switch, not ours.
   let rememberedTucked = '0';
   try {
-    remembered = localStorage.getItem(STORE_KEY) ?? '1';
     rememberedTucked = localStorage.getItem(STORE_TUCKED) ?? '0';
   } catch (_) {
     // Private mode with storage disabled: stay on the default.
   }
   setTucked(rememberedTucked === '1');
-  show(remembered !== '0');
+  // Off until the dashboard says otherwise: a panel that appears before the
+  // switch that owns it has even mounted is a panel flickering on and off.
+  show(false);
 }

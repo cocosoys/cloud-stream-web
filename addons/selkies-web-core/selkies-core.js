@@ -197,8 +197,8 @@ if (typeof window !== 'undefined') {
         titleFromManifest();
         const streamingMode = determineStreamingMode();
         switchStreamingMode(streamingMode);
-        // After the core is up: the overlay announces `statsOpen` on the
-        // window, and the core is the only listener for it.
+        // After the core is up: the dashboard's stats switch posts `statsHud`
+        // on the window, and the overlay is the only listener for it.
         //
         // Guarded on purpose. This runs *before* a dashboard mounts its React
         // tree (`main.jsx:70` calls us, then renders), so an exception in the

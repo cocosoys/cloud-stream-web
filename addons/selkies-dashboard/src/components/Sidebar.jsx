@@ -1595,6 +1595,15 @@ function Sidebar() {
     localStorage.setItem(getPrefixedKey("stats_strip"), String(!statsStrip));
     setStatsStrip(!statsStrip);
   };
+  // The same switch also owns the panel docked to the stream's top-right corner
+  // (`lib/stats-hud.js` in the core). It used to answer F3 on its own, which
+  // meant a panel could sit over the stream while this switch said off; now the
+  // switch is the only thing that says either way, and its state is posted on
+  // mount as well so a remembered "on" comes back with the page.
+  const statsHudOn = statsStrip && !isViewerRole && (renderableSettings.stats ?? true);
+  useEffect(() => {
+    window.postMessage({ type: "statsHud", open: statsHudOn }, window.location.origin);
+  }, [statsHudOn]);
   const [sectionsOpen, setSectionsOpen] = useState({
     settings: false,
     audioSettings: false,
@@ -4284,7 +4293,12 @@ function Sidebar() {
                 {sectionsOpen.stats && (
                   <div className="sidebar-section-content" id="stats-content">
                     <div className="dev-setting-item toggle-item">
-                      <label htmlFor="statsStripToggle">{t("sections.stats.stripLabel")}</label>
+                      <label
+                        htmlFor="statsStripToggle"
+                        title={t("sections.stats.stripTitle", "Show the stream's numbers over the stream")}
+                      >
+                        {t("sections.stats.stripLabel")}
+                      </label>
                       <button
                         id="statsStripToggle"
                         className={`toggle-button-sidebar ${statsStrip ? "active" : ""}`}

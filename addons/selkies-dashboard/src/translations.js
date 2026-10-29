@@ -190,6 +190,7 @@ const en = {
             softwarePreferred: "Software preferred after a decoder fallback",
             overshoot: "More than 10% over the target rate",
             stripLabel: "Show over the stream",
+            stripTitle: "Draws both overlays over the stream: the strip along the top edge with the numbers a glance needs, and the panel in the top-right corner with the full set. Off means neither is drawn, and the server stops sending statistics.",
             tiles: {
                 encode_ms: "Encode",
                 pipeline_ms: "Capture to encoded",
@@ -842,6 +843,7 @@ const zh_cn = {
             softwarePreferred: "解码器回退后改用软件解码",
             overshoot: "超出目标码率 10% 以上",
             stripLabel: "在画面上显示",
+            stripTitle: "在画面上叠加两处：沿顶部一条是扫一眼够用的关键指标，右上角面板是完整数据。关闭后两处都不再显示，服务器也会停止推送统计数据。",
             tiles: {
                 encode_ms: "编码",
                 pipeline_ms: "采集到编码",
