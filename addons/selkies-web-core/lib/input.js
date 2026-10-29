@@ -1785,18 +1785,6 @@ export class Input {
     }
 
     /**
-     * Gain a page uses when it has stored nothing: pass the browser's delta
-     * through untouched.
-     *
-     * 1 is the only defensible product default, because it is the one value
-     * that makes turning the view feel the same here as playing on the host:
-     * the browser's raw counts reach the game's own sensitivity curve without
-     * arithmetic in between. Everything else the page needs for a different
-     * feel is a per-player preference (the slider), not a product default.
-     */
-    static POINTER_GAIN_DEFAULT = 1;
-
-    /**
      * Whether the engine's own record of where the viewport sits on the
      * screen puts it at the window's origin, as a fullscreen viewport sits.
      * Only Gecko exposes that record (`mozInnerScreenX`/`mozInnerScreenY`),
