@@ -65,6 +65,8 @@
  * @param {string} answer The answer SDP the engine created.
  * @returns {string} The answer, taking multiopus wherever the offer carries it.
  */
+import { admitAction, Surface } from './listener-surface.js';
+
 export function takeMultiopus(offer, answer) {
 	const split = (sdp) => sdp.split(/(?=^m=)/m);
 	const offered = split(offer);
@@ -425,6 +427,14 @@ export class WebRTCClient {
 				throw new Error('Microphone is disabled on this server.');
 			}
 			if (this._micStream || this._micPending) return true;
+			// #88: 麦克风与摄像头是这张页面上仅有的两处"真实设备被打开"。裁决
+			// 放在 `getUserMedia` 之前 —— 先拿到设备再拒绝，权限提示已经弹过了。
+			// 返回 false 与"浏览器不支持"走同一条上层路径：调用方本来就要处理
+			// 开不了麦的情况。
+			if (!admitAction(Surface.MEDIA_MIC, { type: 'microphone', deviceId })) {
+				console.warn('[surface] microphone denied by policy');
+				return false;
+			}
 			if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return false;
 			const audio = { channelCount: 1, sampleRate: 24000, echoCancellation: true, noiseSuppression: true, autoGainControl: true };
 			if (deviceId) audio.deviceId = { exact: deviceId };

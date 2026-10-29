@@ -4,6 +4,8 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
+import { attach, Surface } from './listener-surface.js';
+
 /**
  * Client/server clipboard synchronization, shared by both transports.
  *
@@ -1696,24 +1698,31 @@ export function createClipboardGestures({
         sending.finally(() => { if (pasteSendInFlight === sending) pasteSendInFlight = null; });
     }
 
+    /**
+     * #88: `attach` 返回的解绑函数。改成存句柄而不是逐条
+     * `removeEventListener`，是因为包过 `admit` 的回调已经不是原来那个函数
+     * 引用 —— 按原引用移除会静默失效，监听从"可以卸载"变成"一直挂着"。
+     */
+    const offs = [];
+
     /** Registers the listeners; called before input attaches so the hold runs first. */
     function wire() {
-        window.addEventListener('keydown', holdPasteWhileClipboardInFlight, true);
-        window.addEventListener('keyup', holdPasteWhileClipboardInFlight, true);
+        // 这两个只做本地节流：粘贴键按住期间把上行推迟一拍，没有副作用。
+        // 显式归 lifecycle 而不是让它按 keydown 落进 input.keyboard —— 键盘
+        // 被策略拒绝时，这点本地的顺序控制不该跟着停。
+        offs.push(attach(window, 'keydown', holdPasteWhileClipboardInFlight, true, Surface.LIFECYCLE));
+        offs.push(attach(window, 'keyup', holdPasteWhileClipboardInFlight, true, Surface.LIFECYCLE));
         if (!isChromium) {
-            window.addEventListener('keydown', onCopyKeydown, true);
-            window.addEventListener('paste', onPaste, true);
+            // #88: 复制与粘贴是两个方向，权限模型里从来不是一回事：读回主机
+            // 剪贴板（clipboard.read）比往里写（clipboard.write）敏感得多。
+            offs.push(attach(window, 'keydown', onCopyKeydown, true, Surface.CLIPBOARD_READ));
+            offs.push(attach(window, 'paste', onPaste, true, Surface.CLIPBOARD_WRITE));
         }
     }
 
     /** Removes the listeners `wire` registered. */
     function unwire() {
-        window.removeEventListener('keydown', holdPasteWhileClipboardInFlight, true);
-        window.removeEventListener('keyup', holdPasteWhileClipboardInFlight, true);
-        if (!isChromium) {
-            window.removeEventListener('keydown', onCopyKeydown, true);
-            window.removeEventListener('paste', onPaste, true);
-        }
+        for (const off of offs.splice(0)) off();
     }
 
     return { wire, unwire };

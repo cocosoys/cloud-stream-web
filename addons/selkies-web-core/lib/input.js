@@ -79,6 +79,7 @@
 
 import { GamepadManager } from './gamepad.js';
 import { Queue, isMacDesktop } from './util.js';
+import { admit, surfaceOfEvent } from './listener-surface.js';
 
 /** CSS class on elements (and their descendants) whose input stays native. */
 const WHITELIST_CLASS = 'allow-native-input';
@@ -5882,6 +5883,12 @@ function _stylusTouches(touches) {
 /**
  * Adds a listener bound to `ctx`, with `passive: false` so the handler keeps
  * `preventDefault()`.
+ *
+ * #88: 这里是输入面的唯一收口 —— 键鼠、触屏、手柄、滚轮、文本输入的 60 多处
+ * 注册全部经过它，所以一个包装就够让上层策略看到每一次触发，不必逐个调用点
+ * 改。面由事件名查表（`listener-surface.js` 的 `DOM_SURFACE`），未登记的事件
+ * 名会在第一次触发时告警而不是被静默放行。
+ *
  * @returns {Array|null} The tuple `removeListeners` takes, or null for an invalid target.
  */
 function addListener(obj, name, func, ctx, useCapture = false) {
@@ -5889,7 +5896,14 @@ function addListener(obj, name, func, ctx, useCapture = false) {
         console.error("addListener: Invalid target object", obj);
         return null;
     }
-    const newFunc = ctx ? func.bind(ctx) : func;
+    const bound = ctx ? func.bind(ctx) : func;
+    const surface = surfaceOfEvent(name);
+    // 没有装拦截器时 `admit` 只做一次 `if (!interceptor) return true`，
+    // 指针每帧几十次的路径上这点开销不值得再优化。
+    const newFunc = (event) => {
+        if (!admit(surface, { type: name, event })) return undefined;
+        return bound(event);
+    };
     const options = { capture: useCapture, passive: false };
     obj.addEventListener(name, newFunc, options);
     return [obj, name, newFunc, options];

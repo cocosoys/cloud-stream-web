@@ -34,6 +34,8 @@
  * @module
  */
 
+import { admitAction, Surface } from './listener-surface.js';
+
 /** Codec id of independent JPEG frames, as the server's webcam module numbers them. */
 export const WEBCAM_CODEC_MJPEG = 0;
 /** Codec id of H.264 Annex B frames. */
@@ -713,6 +715,15 @@ export class WebcamCapture {
    */
   async start(deviceId) {
     if (this._active) {
+      return;
+    }
+    // #88: 摄像头是"外部设备把画面送进来"的面，和麦克风同级。拒绝时走
+    // `_onError` 而不是静默返回 —— 上层 UI 靠它把按钮复位，否则用户会看到
+    // 一个显示着"已开启"却永远黑屏的摄像头。
+    if (!admitAction(Surface.MEDIA_WEBCAM, { type: 'webcam', deviceId })) {
+      const denied = new Error("camera denied by policy");
+      denied.name = "NotAllowedError";
+      this._onError(denied);
       return;
     }
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {

@@ -29,6 +29,15 @@
 import { getStorageAppName } from "./lib/util.js";
 import { titleFromManifest } from "./lib/page-title.js";
 import { installStatsHud } from "./lib/stats-hud.js";
+import {
+    Surface,
+    admitAction,
+    interceptorLabel,
+    resetStats,
+    setInterceptor,
+    stats,
+    surfaceOfEvent,
+} from "./lib/listener-surface.js";
 import webrtc from "./selkies-wr-core";
 import websockets from "./selkies-ws-core";
 
@@ -166,6 +175,23 @@ function switchStreamingMode(newMode) {
 }
 
 if (typeof window !== 'undefined') {
+    // #88: 监听面 API。上层项目（webgame 等）不必改这份源码 ——
+    // `window.selkiesSurface.setInterceptor(fn)` 就能接管键鼠、剪贴板、麦克风、
+    // 摄像头、文件上传的每一次触发。
+    //
+    // 暴露在 `selkiesCoreInitialize` 之外、模块求值时：策略必须在**第一个**
+    // 事件到达之前就位。挂进初始化函数里，首屏那几十毫秒的按键会遵循默认的
+    // "全放行"，而那正是最该被拦的时刻。
+    window.selkiesSurface = Object.freeze({
+        Surface,
+        admitAction,
+        setInterceptor,
+        /** 当前拦截器名，`none` 表示没有策略。 */
+        interceptorLabel,
+        stats,
+        resetStats,
+        surfaceOfEvent,
+    });
     window.addEventListener("message", handleMessage)
     window.selkiesCoreInitialize = function() {
         titleFromManifest();

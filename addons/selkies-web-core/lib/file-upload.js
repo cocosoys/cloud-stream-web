@@ -4,6 +4,8 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
+import { admitAction, Surface } from './listener-surface.js';
+
 /**
  * File uploads, shared by both transports.
  *
@@ -118,6 +120,12 @@ export function createFileUploader({ canUpload = () => true } = {}) {
      * @throws {Error} The upload failure, after reporting it.
      */
     async function uploadFileObject(file, pathToSend) {
+        // #88: 上传是"往主机磁盘写字节"的面。裁决放在 `post({status:'start'})`
+        // 之前，否则面板会先显示一个开始进度条，再莫名消失。
+        if (!admitAction(Surface.FILE_UPLOAD, { type: 'upload', path: pathToSend, size: file.size })) {
+            post({ status: 'error', fileName: pathToSend, fileSize: file.size, message: 'Upload denied by policy.' });
+            return;
+        }
         post({ status: 'start', fileName: pathToSend, fileSize: file.size });
         const report = (status, extra) =>
             post({ status, fileName: pathToSend, fileSize: file.size, ...extra });
