@@ -17,7 +17,6 @@ const simpleInterpolate = (str, variables) => {
 
 // --- English Translations (Default) ---
 const en = {
-    selkiesLogoAlt: "Selkies Logo",
     toggleThemeTitle: "Toggle Theme",
     openDashboardTitle: "Open Dashboard",
     closeDashboardTitle: "Close Dashboard",
@@ -326,7 +325,6 @@ const en = {
 
 // --- Spanish Translations (Complete) ---
 const es = {
-    selkiesLogoAlt: "Logo de Selkies",
     toggleThemeTitle: "Cambiar Tema",
     openDashboardTitle: "Abrir el panel",
     closeDashboardTitle: "Cerrar el panel",
@@ -635,7 +633,6 @@ const es = {
 
 // --- Chinese (Simplified) Translations ---
 const zh_cn = {
-    selkiesLogoAlt: "Selkies 徽标",
     toggleThemeTitle: "切换主题",
     openDashboardTitle: "打开仪表板",
     closeDashboardTitle: "关闭仪表板",
@@ -944,7 +941,6 @@ const zh_cn = {
 
 // --- Hindi Translations ---
 const hi = {
-    selkiesLogoAlt: "सेल्कीस लोगो",
     toggleThemeTitle: "थीम बदलें",
     openDashboardTitle: "डैशबोर्ड खोलें",
     closeDashboardTitle: "डैशबोर्ड बंद करें",
@@ -1253,7 +1249,6 @@ const hi = {
 
 // --- Portuguese Translations ---
 const pt = {
-    selkiesLogoAlt: "Logo Selkies",
     toggleThemeTitle: "Alternar Tema",
     openDashboardTitle: "Abrir o painel",
     closeDashboardTitle: "Fechar o painel",
@@ -1562,7 +1557,6 @@ const pt = {
 
 // --- French Translations ---
 const fr = {
-    selkiesLogoAlt: "Logo Selkies",
     toggleThemeTitle: "Changer de thème",
     openDashboardTitle: "Ouvrir le tableau de bord",
     closeDashboardTitle: "Fermer le tableau de bord",
@@ -1872,7 +1866,6 @@ const fr = {
 
 // --- Russian Translations ---
 const ru = {
-    selkiesLogoAlt: "Логотип Selkies",
     toggleThemeTitle: "Переключить тему",
     openDashboardTitle: "Открыть панель",
     closeDashboardTitle: "Закрыть панель",
@@ -2181,7 +2174,6 @@ const ru = {
 
 // --- German Translations ---
 const de = {
-    selkiesLogoAlt: "Selkies-Logo",
     toggleThemeTitle: "Theme wechseln",
     openDashboardTitle: "Dashboard öffnen",
     closeDashboardTitle: "Dashboard schließen",
@@ -2490,7 +2482,6 @@ const de = {
 
 // --- Turkish Translations ---
 const tr = {
-    selkiesLogoAlt: "Selkies Logosu",
     toggleThemeTitle: "Temayı Değiştir",
     openDashboardTitle: "Paneli aç",
     closeDashboardTitle: "Paneli kapat",
@@ -2799,7 +2790,6 @@ const tr = {
 
 // --- Italian Translations ---
 const it = {
-    selkiesLogoAlt: "Logo Selkies",
     toggleThemeTitle: "Cambia Tema",
     openDashboardTitle: "Apri la dashboard",
     closeDashboardTitle: "Chiudi la dashboard",
@@ -3108,7 +3098,6 @@ const it = {
 
 // --- Dutch Translations ---
 const nl = {
-    selkiesLogoAlt: "Selkies-logo",
     toggleThemeTitle: "Thema wisselen",
     openDashboardTitle: "Dashboard openen",
     closeDashboardTitle: "Dashboard sluiten",
@@ -3417,7 +3406,6 @@ const nl = {
 
 // --- Arabic Translations ---
 const ar = {
-    selkiesLogoAlt: "شعار Selkies",
     toggleThemeTitle: "تبديل السمة",
     openDashboardTitle: "فتح لوحة التحكم",
     closeDashboardTitle: "إغلاق لوحة التحكم",
@@ -3726,7 +3714,6 @@ const ar = {
 
 // --- Korean Translations ---
 const ko = {
-    selkiesLogoAlt: "Selkies 로고",
     toggleThemeTitle: "테마 전환",
     openDashboardTitle: "대시보드 열기",
     closeDashboardTitle: "대시보드 닫기",
@@ -4035,7 +4022,6 @@ const ko = {
 
 // --- Japanese Translations ---
 const ja = {
-    selkiesLogoAlt: "Selkies ロゴ",
     toggleThemeTitle: "テーマを切り替え",
     openDashboardTitle: "ダッシュボードを開く",
     closeDashboardTitle: "ダッシュボードを閉じる",
@@ -4344,7 +4330,6 @@ const ja = {
 
 // --- Vietnamese Translations ---
 const vi = {
-    selkiesLogoAlt: "Logo Selkies",
     toggleThemeTitle: "Chuyển đổi Chủ đề",
     openDashboardTitle: "Mở bảng điều khiển",
     closeDashboardTitle: "Đóng bảng điều khiển",
@@ -4653,7 +4638,6 @@ const vi = {
 
 // --- Thai Translations ---
 const th = {
-    selkiesLogoAlt: "โลโก้ Selkies",
     toggleThemeTitle: "สลับธีม",
     openDashboardTitle: "เปิดแดชบอร์ด",
     closeDashboardTitle: "ปิดแดชบอร์ด",
@@ -4962,7 +4946,6 @@ const th = {
 
 // --- Filipino Translations ---
 const fil = {
-    selkiesLogoAlt: "Logo ng Selkies",
     toggleThemeTitle: "I-toggle ang Tema",
     openDashboardTitle: "Buksan ang dashboard",
     closeDashboardTitle: "Isara ang dashboard",
@@ -5271,7 +5254,6 @@ const fil = {
 
 // --- Danish Translations ---
 const da = {
-    selkiesLogoAlt: "Selkies-logo",
     toggleThemeTitle: "Skift tema",
     openDashboardTitle: "Åbn dashboardet",
     closeDashboardTitle: "Luk dashboardet",
@@ -5580,7 +5562,6 @@ const da = {
 
 // --- Chinese (Traditional) Translations ---
 const zh_tw = {
-    selkiesLogoAlt: "Selkies 標誌",
     toggleThemeTitle: "切換介面風格",
     openDashboardTitle: "打開控制面板",
     closeDashboardTitle: "關閉控制面板",

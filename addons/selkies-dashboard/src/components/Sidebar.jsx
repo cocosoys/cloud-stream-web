@@ -55,7 +55,7 @@
  * because it is a per-browser preference.
  * @module
  */
-import { useState, useEffect, useCallback, useId, useMemo, useRef, useSyncExternalStore } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef, useSyncExternalStore } from "react";
 import { displayLabel, canPlayEncoder, decoderSupportReady, canDecodeFullColor, canDecodeTenBit, tenBitFormat, codecOfEncoder, codecCarriesFullColor, codecCarriesTenBit, getStorageAppName, isMobileClient, isMacDesktop } from "../../../selkies-web-core/lib/util.js";
 import { withSessionToken } from "../../../selkies-web-core/lib/session-token.js";
 import { hardwareKeyboard } from "../../../selkies-web-core/lib/hardware-keyboard.js";
@@ -377,43 +377,31 @@ const SpinnerIcon = () => (
   </svg>
 );
 /**
- * The mark from docs/assets/logo/selkies.svg. The gradient identifier is
- * per-instance: two logos sharing one identifier would leave the second
- * unpainted as soon as the instance that owns the definition unmounts.
+ * Brand mark, read from `public/brand/logo.svg` at runtime.
+ *
+ * The file is dropped in by whoever runs this deployment; until then the
+ * element renders nothing at all rather than a broken image. That is the whole
+ * reason this is an `<img>` with an `onError` guard instead of an inline SVG:
+ * the mark is not ours to ship, so it must not be baked into the bundle.
+ *
  * @param {object} props
  * @param {number} [props.width=30]
  * @param {number} [props.height=30]
  * @param {string} [props.className]
- * @param {Function} props.t Translator, for the accessible label.
  */
-const SelkiesLogo = ({ width = 30, height = 30, className, t, ...props }) => {
-  const id = useId();
+const BrandLogo = ({ width = 30, height = 30, className, ...props }) => {
+  const [missing, setMissing] = useState(false);
+  if (missing) return null;
   return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 460 460"
+    <img
+      src={`${import.meta.env.BASE_URL}brand/logo.svg`}
       width={width}
       height={height}
       className={className}
-      role="img"
-      aria-label={t("selkiesLogoAlt")}
+      alt=""
+      onError={() => setMissing(true)}
       {...props}
-    >
-      <defs>
-        <linearGradient id={id} x1="0" y1="1" x2="0" y2="0">
-          <stop offset="0.4293" stopColor="#D5499A" />
-          <stop offset="0.6263" stopColor="#C34AA2" />
-          <stop offset="0.9945" stopColor="#7967C5" />
-        </linearGradient>
-      </defs>
-      <g transform="translate(0,460) scale(0.1,-0.1)">
-        <path
-          fill={`url(#${id})`}
-          fillRule="evenodd"
-          d="M3570 4078 l-65 -19 -125 -36 -125 -35 -95 -28 -95 -28 -95 -26 -95 -27 -45 -12 -45 -12 -355 -707 -354 -708 -79 0 -79 0 5 13 6 12 34 80 35 80 46 105 46 105 0 2 0 3 -13 0 -12 0 -285 -141 -285 -142 -350 -172 -350 -173 -355 -176 -354 -176 -10 -10 -10 -10 1834 0 1834 0 179 178 179 178 -16 90 -16 89 -46 280 -45 279 -5 7 -4 7 -93 53 -92 52 -40 22 -41 22 -22 14 -22 14 0 7 0 8 340 0 340 0 19 38 19 37 96 160 96 159 0 29 0 29 -29 29 -29 29 -234 1 -233 0 -82 102 -83 102 -22 29 -23 28 -23 27 -22 26 -53 67 -52 67 -20 0 -20 -1 -65 -20z m59 -387 l83 -66 15 -11 14 -12 -58 -54 -58 -55 -42 -37 -42 -38 -128 58 -128 57 -8 7 -8 7 73 63 73 64 10 10 10 11 43 38 43 38 12 -7 12 -7 84 -66z M54 1558 l6 -33 14 -105 15 -105 16 -120 17 -120 1 -1 2 -1 135 -93 135 -94 65 -46 65 -47 83 -57 83 -58 4 4 4 4 -14 59 -14 60 -27 120 -26 120 -19 85 -19 85 -5 23 -5 22 1075 0 1075 0 0 13 -1 12 -77 150 -77 150 -1258 3 -1258 2 5 -32z M2940 1584 l0 -6 122 -243 122 -243 -59 -68 -60 -68 -25 -26 -25 -27 -35 -39 -35 -39 -62 -71 -63 -72 0 -6 0 -6 199 0 199 0 183 136 184 137 124 91 123 91 30 25 30 26 -68 92 -69 92 -85 115 -85 115 -322 0 -323 0 0 -6z"
-        />
-      </g>
-    </svg>
+    />
   );
 };
 
@@ -999,7 +987,7 @@ function Sidebar() {
   /** The derived default, marked in the picker so the two never disagree. */
   const currentDeviceDpi = deriveDpi(manualResolution(serverSettings));
 
-  const [uiTitle, setUiTitle] = useState('Selkies');
+  const [uiTitle, setUiTitle] = useState('WebGame');
   const [uiShowLogo, setUiShowLogo] = useState(true);
 
   /**
@@ -3033,22 +3021,8 @@ function Sidebar() {
       })()}
       <div className={sidebarClasses}>
           <div className="sidebar-header">
-            {uiShowLogo && (
-              <a
-                href="https://github.com/selkies-project/selkies"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                <SelkiesLogo width={30} height={30} t={t} />
-              </a>
-            )}
-            <a
-              href="https://github.com/selkies-project/selkies"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              <h2>{uiTitle}</h2>
-            </a>
+            {uiShowLogo && <BrandLogo width={30} height={30} />}
+            <h2>{uiTitle}</h2>
             <div className="header-controls">
             <div
               className={`theme-toggle ${theme}`}

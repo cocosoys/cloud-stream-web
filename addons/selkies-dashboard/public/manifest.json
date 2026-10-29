@@ -1,6 +1,6 @@
 {
-  "name": "Selkies",
-  "short_name": "Selkies",
+  "name": "WebGame",
+  "short_name": "WebGame",
   "display": "fullscreen",
   "start_url": ".",
   "background_color": "#000000",

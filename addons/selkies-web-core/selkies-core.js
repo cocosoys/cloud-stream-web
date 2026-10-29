@@ -53,7 +53,7 @@ const safeSetItem = (key, value) => {
     try {
         localStorage.setItem(key, value);
     } catch (e) {
-        console.warn(`Selkies: could not persist '${key}' to localStorage:`, e);
+        console.warn(`WebGame: could not persist '${key}' to localStorage:`, e);
     }
 };
 
@@ -83,7 +83,7 @@ const safeSetItem = (key, value) => {
         }
         staleKeys.forEach((k) => localStorage.removeItem(k));
         if (staleKeys.length) {
-            console.log(`Selkies: removed ${staleKeys.length} stale token-scoped localStorage keys.`);
+            console.log(`WebGame: removed ${staleKeys.length} stale token-scoped localStorage keys.`);
         }
         if (oldAppName === storageAppName) return;
         const migratedFlagKey = `${storageAppName}_storage_key_migrated`;
@@ -208,7 +208,7 @@ if (typeof window !== 'undefined') {
         try {
             installStatsHud();
         } catch (e) {
-            console.error("Selkies: stats overlay failed to install; continuing without it:", e);
+            console.error("WebGame: stats overlay failed to install; continuing without it:", e);
         }
     };
 }

@@ -3,9 +3,25 @@
 [`cloud-stream`](https://github.com/cocosoys/cloud-stream) 的**浏览器前端**：打开页面就能看到
 被控机的桌面，键盘、鼠标、触屏、剪贴板、文件上传全部走浏览器原生能力，不需要装客户端。
 
-这个仓库源自 [Selkies](https://github.com/selkies-project/selkies) 的 webclient，
-保留了完整的上游 `addons/`，在此之上把流客户端改造成对接 `cloud-stream` 服务端的信令契约
+流客户端基线来自一个开源项目（致谢见 [CREDITS.md](CREDITS.md)），保留了其完整的
+`addons/` 结构，并把流客户端改造成对接 `cloud-stream` 服务端的信令契约
 （VP8 + 两条 DataChannel，`/api/<app>/signaling/`）。
+
+## 品牌
+
+界面上的名称与图标是本项目自己的，上游的品牌字样不出现在页面上：
+
+| 位置 | 内容 | 改哪里 |
+|---|---|---|
+| 顶栏名称 | `WebGame` | `selkies-dashboard/src/components/Sidebar.jsx` 的 `uiTitle` 默认值 |
+| 顶栏图标 | 自己的图形 | 放 `selkies-dashboard/public/brand/logo.svg`；文件不存在时顶栏不渲染图标（不会出现破图） |
+| 浏览器标签页 | `WebGame` | `index.html` 的 `<title>`（两个包各一处）、`lib/page-title.js` 的兜底值 |
+| PWA 名称 | `WebGame` | `public/manifest.json` 的 `name` / `short_name` |
+| favicon / PWA 图标 | 自己的图形 | 替换 `public/icon.png`、`public/icon-512.png` |
+
+目录名、包名、`window.__SELKIES_*` 这类**内部标识符**保持不变：它们出现在
+`/api` 契约、存储键与部署脚本的判据里，改名的收益只有"grep 干净"，代价是同时改
+后端与已部署目录。详见 [`docs/branding.md`](docs/branding.md)。
 
 ## 两个真正在用的包
 

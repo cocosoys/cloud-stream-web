@@ -599,7 +599,7 @@ export default function webrtc() {
 		try {
 			window.localStorage.setItem(key, value);
 		} catch (e) {
-			console.warn(`Selkies: could not persist '${key}' to localStorage:`, e);
+			console.warn(`WebGame: could not persist '${key}' to localStorage:`, e);
 		}
 	};
 
@@ -1189,7 +1189,7 @@ export default function webrtc() {
 		const codec = codecOfEncoder(encoder);
 		if (!codecCarriesFullColor(codec) || await fullColorDecodable(codec)) return;
 		if (!getBoolParam('video_fullcolor', false)) return;
-		console.warn(`[Selkies] full color (4:4:4) is off: this browser decodes ${codec} 4:2:0 only over WebRTC.`);
+		console.warn(`[WebGame] full color (4:4:4) is off: this browser decodes ${codec} 4:2:0 only over WebRTC.`);
 		setBoolParam('video_fullcolor', false);
 	}
 
@@ -1221,7 +1221,7 @@ export default function webrtc() {
 			console.error(`This session streams ${codec} 4:4:4, which this browser cannot decode over WebRTC.`);
 			return;
 		}
-		console.warn(`[Selkies] full color (4:4:4) is off: this browser decodes ${codec} 4:2:0 only over WebRTC.`);
+		console.warn(`[WebGame] full color (4:4:4) is off: this browser decodes ${codec} 4:2:0 only over WebRTC.`);
 		window.video_fullcolor = false;
 		setBoolParam('video_fullcolor', false);
 		handleSettingsMessage({ video_fullcolor: false }, false);
@@ -1284,7 +1284,7 @@ export default function webrtc() {
 		const codec = codecOfEncoder(encoder);
 		if (!codecCarriesTenBit(codec) || !getBoolParam('video_10bit', false)) return;
 		if (await tenBitDecodable(codec, getBoolParam('video_fullcolor', false) && codecCarriesFullColor(codec))) return;
-		console.warn(`[Selkies] 10-bit is off: this browser decodes ${codec} at 8 bits only over WebRTC.`);
+		console.warn(`[WebGame] 10-bit is off: this browser decodes ${codec} at 8 bits only over WebRTC.`);
 		setBoolParam('video_10bit', false);
 	}
 
@@ -1305,7 +1305,7 @@ export default function webrtc() {
 			console.error(`This session streams 10-bit ${codec}, which this browser cannot decode over WebRTC.`);
 			return;
 		}
-		console.warn(`[Selkies] 10-bit is off: this browser decodes ${codec} at 8 bits only over WebRTC.`);
+		console.warn(`[WebGame] 10-bit is off: this browser decodes ${codec} at 8 bits only over WebRTC.`);
 		window.video_10bit = false;
 		setBoolParam('video_10bit', false);
 		handleSettingsMessage({ video_10bit: false }, false);

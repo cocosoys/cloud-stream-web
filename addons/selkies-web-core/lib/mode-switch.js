@@ -49,7 +49,7 @@ export async function switchStreamMode(mode) {
         let response = await request();
         if (response.status === 401) {
             const entered = window.prompt
-                ? window.prompt('Switching the stream mode requires the Selkies master token:')
+                ? window.prompt('Switching the stream mode requires the master token:')
                 : null;
             if (entered && entered.trim()) {
                 try { sessionStorage.setItem(MASTER_TOKEN_KEY, entered.trim()); } catch (e) { /* sessionStorage unavailable */ }

@@ -930,7 +930,7 @@ const safeSetItem = (key, value) => {
   try {
     window.localStorage.setItem(key, value);
   } catch (e) {
-    console.warn(`Selkies: could not persist '${key}' to localStorage:`, e);
+    console.warn(`WebGame: could not persist '${key}' to localStorage:`, e);
   }
 };
 
@@ -967,7 +967,7 @@ let preferSoftwareDecode = false;
 try {
   preferSoftwareDecode = window.sessionStorage.getItem(SOFTWARE_DECODE_KEY) !== null;
 } catch (e) {
-  console.warn('Selkies: could not read the software-decode preference:', e);
+  console.warn('WebGame: could not read the software-decode preference:', e);
 }
 /**
  * Whether the one software-decode retry of this session is spent. It is spent
@@ -1012,7 +1012,7 @@ const rememberSoftwareDecode = (enabled, why = '') => {
     if (enabled) window.sessionStorage.setItem(SOFTWARE_DECODE_KEY, fallbackStamp(why));
     else window.sessionStorage.removeItem(SOFTWARE_DECODE_KEY);
   } catch (e) {
-    console.warn('Selkies: could not store the software-decode preference:', e);
+    console.warn('WebGame: could not store the software-decode preference:', e);
   }
 };
 /**
@@ -1066,7 +1066,7 @@ const retireCrashCountWhenHealthy = () => {
   try {
     window.localStorage.removeItem(CRASH_COUNT_KEY);
   } catch (e) {
-    console.warn('Selkies: could not clear the decoder crash count:', e);
+    console.warn('WebGame: could not clear the decoder crash count:', e);
   }
 };
 /**
@@ -1922,7 +1922,7 @@ function checkWorkerSinkAlive() {
   if (!workerSinkInertSince) { workerSinkInertSince = now; return; }
   if (now - workerSinkInertSince > 1500) {
     videoWorkerSinkInert = true;
-    console.info('[Selkies] worker canvas placeholder never took a committed frame; presenting on the page canvas instead.');
+    console.info('[WebGame] worker canvas placeholder never took a committed frame; presenting on the page canvas instead.');
     deactivateVideoWorker();
   }
 }
@@ -2832,7 +2832,7 @@ function announceSink(description) {
   currentSink = description;
   if (announcedSinks.has(description)) return;
   announcedSinks.add(description);
-  console.info(`[Selkies] video sink: ${description}`);
+  console.info(`[WebGame] video sink: ${description}`);
 }
 
 /**
@@ -3364,7 +3364,7 @@ async function settleFullColorSupport() {
     if (!codecCarriesFullColor(codec)) return;
     if (await canDecodeFullColor(codec)) return;
     if (!getBoolParam('video_fullcolor', false)) return;
-    console.warn(`[Selkies] full color (4:4:4) is off: this browser decodes ${codec} 4:2:0 only.`);
+    console.warn(`[WebGame] full color (4:4:4) is off: this browser decodes ${codec} 4:2:0 only.`);
     video_fullcolor = false;
     setBoolParam('video_fullcolor', false);
 }
@@ -3386,7 +3386,7 @@ async function declineUndecodableFullColor(reason) {
     // A codec this server encodes 4:2:0 whatever is asked gives the setting nothing to decline.
     if (!codecCarriesFullColor(codec) || serverFullColor(codec) === false || await canDecodeFullColor(codec)) return false;
     if (!video_fullcolor) return false;
-    console.warn(`[Selkies] full color (4:4:4) is off: this browser decodes ${codec} 4:2:0 only.`);
+    console.warn(`[WebGame] full color (4:4:4) is off: this browser decodes ${codec} 4:2:0 only.`);
     video_fullcolor = false;
     setBoolParam('video_fullcolor', false);
     sendFullSettingsUpdateToServer(reason);
@@ -3406,7 +3406,7 @@ async function settleTenBitSupport() {
     // The server has said nothing yet, so both chroma formats the stream may take are asked.
     if (await canDecodeTenBit(codec, false)
         && (!video_fullcolor || !codecCarriesFullColor(codec) || await canDecodeTenBit(codec, true))) return;
-    console.warn(`[Selkies] 10-bit is off: this browser shows no 10-bit ${codec} picture.`);
+    console.warn(`[WebGame] 10-bit is off: this browser shows no 10-bit ${codec} picture.`);
     video_10bit = false;
     setBoolParam('video_10bit', false);
 }
@@ -3440,7 +3440,7 @@ async function declineUndecodableTenBit(reason) {
     // A stream this server runs at 8 bits whatever is asked gives the setting nothing to decline.
     if (!codecCarriesTenBit(codec) || !stream || await canDecodeTenBit(codec, stream.fullcolor)) return false;
     if (!video_10bit) return false;
-    console.warn(`[Selkies] 10-bit is off: this browser shows no 10-bit ${codec} picture.`);
+    console.warn(`[WebGame] 10-bit is off: this browser shows no 10-bit ${codec} picture.`);
     video_10bit = false;
     setBoolParam('video_10bit', false);
     sendFullSettingsUpdateToServer(reason);
@@ -4503,7 +4503,7 @@ function ensureStripeWorker() {
     stripeWorker = null;
     return false;
   }
-  console.info('[Selkies] striped codecs: compositing on an OffscreenCanvas in a worker.');
+  console.info('[WebGame] striped codecs: compositing on an OffscreenCanvas in a worker.');
   stripeWorker.onerror = () => deactivateStripeWorker();
   stripeWorker.onmessage = (ev) => {
     const m = ev.data;
@@ -7859,7 +7859,7 @@ class WorkerWebSocket {
     initialSettingsSent = false;
     await settleFullColorSupport();
     await settleTenBitSupport();
-    if (await h264FramingReady === 'avcc') console.info('[Selkies] H.264 decodes here with an avcC description; frames are reframed for it.');
+    if (await h264FramingReady === 'avcc') console.info('[WebGame] H.264 decodes here with an avcC description; frames are reframed for it.');
     // The first answer is the baseline; a later one that differs is a new build.
     entryPageChanged().then((changed) => { if (changed) location.reload(); });
     wsEverOpened = true;

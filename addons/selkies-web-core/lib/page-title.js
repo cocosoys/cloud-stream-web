@@ -21,7 +21,9 @@ let operatorTitle = '';
  * Names the tab after the manifest, unless `ui_title` already named it.
  */
 export function titleFromManifest() {
-    document.title = 'Selkies';
+    // Fallback only: the manifest's name replaces it, and an operator's
+    // `ui_title` outranks both. Kept in step with index.html's <title>.
+    document.title = 'WebGame';
     fetch('manifest.json')
         .then(response => response.json())
         .then(manifest => {
