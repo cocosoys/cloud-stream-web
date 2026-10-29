@@ -173,7 +173,17 @@ if (typeof window !== 'undefined') {
         switchStreamingMode(streamingMode);
         // After the core is up: the overlay announces `statsOpen` on the
         // window, and the core is the only listener for it.
-        installStatsHud();
+        //
+        // Guarded on purpose. This runs *before* a dashboard mounts its React
+        // tree (`main.jsx:70` calls us, then renders), so an exception in the
+        // overlay takes the whole sidebar down with it — the failure looks like
+        // "the toolbar is gone", not like "the stats panel is broken". An
+        // optional overlay must never be able to do that.
+        try {
+            installStatsHud();
+        } catch (e) {
+            console.error("Selkies: stats overlay failed to install; continuing without it:", e);
+        }
     };
 }
 

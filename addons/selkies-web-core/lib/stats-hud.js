@@ -141,7 +141,7 @@ export function installStatsHud() {
       transform: translateX(calc(100% + 16px)); opacity: 0;
     }
     /* The grab handle: the same affordance as the dashboard sidebar's edge
-       toggle (`.toggle-handle` / `.toggle-indicator` in the dashboard's
+       toggle (the toggle-handle / toggle-indicator pair in the dashboard's
        Overlay.css) — a bare accent pill on a transparent hit box, so it adds no
        dark rectangle of its own over the stream. */
     .tab {
