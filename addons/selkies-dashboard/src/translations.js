@@ -86,7 +86,9 @@ const en = {
             crfLabel: "Video CRF ({crf}):",
             fullColorLabel: "FullColor 4:4:4",
             tenBitLabel: "10-bit Color",
-            streamingModeDetails: "Turbo mode disables all VNC logic and encodes all frames like a traditional video encoder.",
+            streamingModeDetails: "Turbo turns off VNC-style incremental updates so every frame is encoded like a conventional video encoder: more bandwidth and CPU, but screen regions are never reused. This server has no incremental path — it encodes whole frames either way — so the switch does not change the picture here. What it does change is the panel's advice on paint-over quality, which Turbo turns off.",
+            streamingModeOnNote: "On · the panel stops suggesting paint-over quality. This server encodes whole frames either way, so the picture is unchanged.",
+            streamingModeOffNote: "Off · the panel suggests paint-over quality for still screens. This server encodes whole frames either way, so the picture is unchanged.",
             streamingModeLabel: "Turbo",
             useCpuLabel: "CPU Encoding",
             jpegQualityLabel: "Base Quality: {jpegQuality}",
@@ -147,7 +149,11 @@ const en = {
             rawPointerMotionLabel: "Raw pointer motion",
             pointerGainName: "Pointer sensitivity",
             pointerGainDefault: "default",
-            pointerGainTitle: "How far the view turns for the same mouse movement under pointer lock. 100% (default) passes the browser's movement through unchanged, which matches playing on the host itself. Lower it if the view overshoots, raise it if it feels sluggish.",
+            pointerGainTitle: "The host system's pointer speed (`SPI_SETMOUSESPEED`), not a multiplier the browser applies: the desktop, the launcher and the game all read this one sensitivity. Windows has 20 speed steps, so a typed value lands on the nearest one; 400 DPI is the OS default (speed step 10).",
+            pointerDpiNearest: "nearest step",
+            pointerDpiExact: "Host pointer now at",
+            pointerDpiInexact: "Host only has these steps, moved to the nearest:",
+            pointerDpiFailed: "The host refused this setting:",
             rawPointerMotionEnableTitle: "Ask the browser for unaccelerated movement under pointer lock (granted on Windows and macOS, refused on Linux and Android)",
             macCmdAsCtrlLabel: "Command sends Control",
             macCmdAsCtrlDisableTitle: "Send Command as the Super key the session's window manager may bind",
@@ -263,7 +269,6 @@ const en = {
             toggleGamepad: "Toggle the virtual gamepad",
             gamingMode: "Toggle gaming mode",
             pointerLock: "Lock the pointer to the stream",
-            citeNotice: "Cite our paper academically",
         },
         sharing: {
             title: "Sharing",
@@ -579,7 +584,6 @@ const es = {
             toggleGamepad: "Alternar el gamepad virtual",
             gamingMode: "Alternar el modo juego",
             pointerLock: "Bloquear el puntero en la transmisión",
-            citeNotice: "Cita nuestro artículo académicamente",
         },
         sharing: {
             title: "Compartir",
@@ -734,7 +738,9 @@ const zh_cn = {
             crfLabel: "视频 CRF ({crf}):",
             fullColorLabel: "全彩 4:4:4",
             tenBitLabel: "10 位色彩",
-            streamingModeDetails: "Turbo 模式会禁用所有 VNC 逻辑，并像传统视频编码器一样对所有帧进行编码。",
+            streamingModeDetails: "Turbo 关掉 VNC 式的增量刷新，画面按整帧连续编码：静态区域也重新编码，画质稳定，代价是码率和 CPU。本服务端没有增量刷新这条路径，每一帧本来就是整帧编码，所以这里开/关不改变画面；它实际决定的是面板对「静态区域优化」的建议（开启 Turbo 时不建议）。",
+            streamingModeOnNote: "已开启 · 面板不再建议「静态区域优化」。本服务端本来就整帧编码，画面不受影响。",
+            streamingModeOffNote: "已关闭 · 面板建议对静态画面使用「静态区域优化」。本服务端仍为整帧编码，画面不受影响。",
             streamingModeLabel: "Turbo",
             useCpuLabel: "CPU 编码",
             jpegQualityLabel: "基础质量: {jpegQuality}",
@@ -795,7 +801,11 @@ const zh_cn = {
             rawPointerMotionLabel: "原始指针移动",
             pointerGainName: "指针灵敏度",
             pointerGainDefault: "默认",
-            pointerGainTitle: "指针锁定后，同样的鼠标位移让视角转多远。100%（默认）原样透传浏览器的位移，与被控端本机操作的手感一致；转过头就调低，发涩就调高。",
+            pointerGainTitle: "写进被控机系统的指针速度（SPI_SETMOUSESPEED），不是浏览器自己乘的倍数：桌面、启动器和游戏读到的都是这一个灵敏度。Windows 只有 20 档速度，填写的数值会落到最接近的一档；400 DPI 是系统默认（速度档 10）。",
+            pointerDpiNearest: "已取最接近的档",
+            pointerDpiExact: "被控端指针已切到",
+            pointerDpiInexact: "被控端只有这些档，已切到最接近的",
+            pointerDpiFailed: "被控端拒绝了这次设置：",
             rawPointerMotionEnableTitle: "在指针锁定时向浏览器请求无加速的移动（Windows 和 macOS 支持，Linux 和 Android 拒绝）",
             macCmdAsCtrlLabel: "Command 发送 Control",
             macCmdAsCtrlDisableTitle: "将 Command 作为会话窗口管理器可能绑定的 Super 键发送",
@@ -911,7 +921,6 @@ const zh_cn = {
             toggleGamepad: "切换虚拟手柄",
             gamingMode: "切换游戏模式",
             pointerLock: "将指针锁定到串流",
-            citeNotice: "学术引用我们的论文",
         },
         sharing: {
             title: "共享",
@@ -1219,7 +1228,6 @@ const hi = {
             toggleGamepad: "वर्चुअल गेमपैड टॉगल करें",
             gamingMode: "गेमिंग मोड टॉगल करें",
             pointerLock: "पॉइंटर को स्ट्रीम पर लॉक करें",
-            citeNotice: "हमारे शोधपत्र को अकादमिक रूप से उद्धृत करें",
         },
         sharing: {
             title: "साझा करना",
@@ -1527,7 +1535,6 @@ const pt = {
             toggleGamepad: "Alternar o gamepad virtual",
             gamingMode: "Alternar o modo de jogo",
             pointerLock: "Bloquear o ponteiro na transmissão",
-            citeNotice: "Cite nosso artigo academicamente",
         },
         sharing: {
             title: "Compartilhamento",
@@ -1835,7 +1842,6 @@ const fr = {
             toggleGamepad: "Basculer la manette virtuelle",
             gamingMode: "Basculer le mode jeu",
             pointerLock: "Verrouiller le pointeur sur le flux",
-            citeNotice: "Citez notre article académiquement",
         },
         sharing: {
             title: "Partage",
@@ -2144,7 +2150,6 @@ const ru = {
             toggleGamepad: "Переключить виртуальный геймпад",
             gamingMode: "Переключить игровой режим",
             pointerLock: "Зафиксировать указатель в потоке",
-            citeNotice: "Цитируйте нашу статью в научных работах",
         },
         sharing: {
             title: "Общий доступ",
@@ -2452,7 +2457,6 @@ const de = {
             toggleGamepad: "Virtuelles Gamepad umschalten",
             gamingMode: "Spielmodus umschalten",
             pointerLock: "Zeiger im Stream sperren",
-            citeNotice: "Zitieren Sie unser Paper wissenschaftlich",
         },
         sharing: {
             title: "Teilen",
@@ -2760,7 +2764,6 @@ const tr = {
             toggleGamepad: "Sanal oyun kolunu aç/kapat",
             gamingMode: "Oyun modunu aç/kapat",
             pointerLock: "İşaretçiyi yayına kilitle",
-            citeNotice: "Makalemize akademik atıfta bulunun",
         },
         sharing: {
             title: "Paylaşım",
@@ -3068,7 +3071,6 @@ const it = {
             toggleGamepad: "Attiva/disattiva il gamepad virtuale",
             gamingMode: "Attiva/disattiva la modalità gioco",
             pointerLock: "Blocca il puntatore sullo stream",
-            citeNotice: "Cita il nostro articolo accademicamente",
         },
         sharing: {
             title: "Condivisione",
@@ -3376,7 +3378,6 @@ const nl = {
             toggleGamepad: "Virtuele gamepad in-/uitschakelen",
             gamingMode: "Gamemodus in-/uitschakelen",
             pointerLock: "Aanwijzer vergrendelen op de stream",
-            citeNotice: "Citeer ons artikel academisch",
         },
         sharing: {
             title: "Delen",
@@ -3684,7 +3685,6 @@ const ar = {
             toggleGamepad: "تبديل ذراع التحكم الافتراضي",
             gamingMode: "تبديل وضع الألعاب",
             pointerLock: "قفل المؤشر على البث",
-            citeNotice: "استشهد بورقتنا البحثية أكاديميًا",
         },
         sharing: {
             title: "المشاركة",
@@ -3992,7 +3992,6 @@ const ko = {
             toggleGamepad: "가상 게임패드 전환",
             gamingMode: "게이밍 모드 전환",
             pointerLock: "포인터를 스트림에 고정",
-            citeNotice: "논문을 학술적으로 인용하기",
         },
         sharing: {
             title: "공유",
@@ -4300,7 +4299,6 @@ const ja = {
             toggleGamepad: "仮想ゲームパッドを切り替え",
             gamingMode: "ゲーミングモードを切り替え",
             pointerLock: "ポインターをストリームにロック",
-            citeNotice: "論文の学術的引用はこちら",
         },
         sharing: {
             title: "共有",
@@ -4608,7 +4606,6 @@ const vi = {
             toggleGamepad: "Bật/tắt tay cầm ảo",
             gamingMode: "Bật/tắt chế độ chơi game",
             pointerLock: "Khóa con trỏ vào luồng",
-            citeNotice: "Trích dẫn học thuật bài báo của chúng tôi",
         },
         sharing: {
             title: "Chia sẻ",
@@ -4916,7 +4913,6 @@ const th = {
             toggleGamepad: "สลับเกมแพดเสมือน",
             gamingMode: "สลับโหมดเกม",
             pointerLock: "ล็อกตัวชี้กับสตรีม",
-            citeNotice: "อ้างอิงบทความของเราเชิงวิชาการ",
         },
         sharing: {
             title: "การแชร์",
@@ -5224,7 +5220,6 @@ const fil = {
             toggleGamepad: "I-toggle ang virtual na gamepad",
             gamingMode: "I-toggle ang gaming mode",
             pointerLock: "I-lock ang pointer sa stream",
-            citeNotice: "Banggitin ang aming papel nang akademiko",
         },
         sharing: {
             title: "Pagbabahagi",
@@ -5532,7 +5527,6 @@ const da = {
             toggleGamepad: "Slå den virtuelle gamepad til/fra",
             gamingMode: "Slå spiltilstand til/fra",
             pointerLock: "Lås markøren til streamen",
-            citeNotice: "Citér vores artikel akademisk",
         },
         sharing: {
             title: "Deling",
@@ -5687,7 +5681,9 @@ const zh_tw = {
             crfLabel: "視訊 CRF ({crf}):",
             fullColorLabel: "全彩 4:4:4",
             tenBitLabel: "10 位元色彩",
-            streamingModeDetails: "Turbo 模式會停用所有的 VNC 邏輯，並像傳統的影片編碼器一樣對所有畫面進行編碼。",
+            streamingModeDetails: "Turbo 關掉 VNC 式的增量更新，畫面按整幀連續編碼：靜態區域也重新編碼，畫質穩定，代價是位元率與 CPU。本服務端沒有增量更新這條路徑，每一幀本來就是整幀編碼，所以這裡開/關不改變畫面；它實際決定的是面板對「靜態區域優化」的建議（開啟 Turbo 時不建議）。",
+            streamingModeOnNote: "已開啟 · 面板不再建議「靜態區域優化」。本服務端本來就整幀編碼，畫面不受影響。",
+            streamingModeOffNote: "已關閉 · 面板建議對靜態畫面使用「靜態區域優化」。本服務端仍為整幀編碼，畫面不受影響。",
             streamingModeLabel: "Turbo",
             useCpuLabel: "CPU 編碼",
             jpegQualityLabel: "基礎畫質: {jpegQuality}",
@@ -5740,7 +5736,11 @@ const zh_tw = {
             rawPointerMotionLabel: "原始游標移動",
             pointerGainName: "游標靈敏度",
             pointerGainDefault: "預設",
-            pointerGainTitle: "游標鎖定後，同樣的滑鼠位移讓視角轉多遠。100%（預設）原樣透傳瀏覽器的位移，與被控端本機操作的手感一致；轉過頭就調低，發澀就調高。",
+            pointerGainTitle: "寫進被控機系統的游標速度（SPI_SETMOUSESPEED），不是瀏覽器自己乘的倍數：桌面、啟動器與遊戲讀到的都是這一個靈敏度。Windows 只有 20 檔速度，填寫的數值會落到最接近的一檔；400 DPI 是系統預設（速度檔 10）。",
+            pointerDpiNearest: "已取最接近的檔",
+            pointerDpiExact: "被控端游標已切到",
+            pointerDpiInexact: "被控端只有這些檔，已切到最接近的",
+            pointerDpiFailed: "被控端拒絕了這次設定：",
             rawPointerMotionEnableTitle: "在游標鎖定下向瀏覽器請求進行非加速移動（Windows 和 macOS 上允許，Linux 和 Android 上被拒絕）。",
             macCmdAsCtrlLabel: "Command 鍵（⌘）映射為 Ctrl 鍵",
             macCmdAsCtrlDisableTitle: "將 Command 鍵（⌘）作為 Super 鍵傳送，視窗管理器可能會綁定。",
@@ -5856,7 +5856,6 @@ const zh_tw = {
             toggleGamepad: "開啟或關閉虛擬觸控手把",
             gamingMode: "切換到遊戲模式",
             pointerLock: "將游標鎖定在遠端連線",
-            citeNotice: "引用我們的論文",
         },
         sharing: {
             title: "共享",

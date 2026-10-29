@@ -1621,24 +1621,6 @@ a:active {
   text-decoration: none;
 }
 
-/* The academic-citation link: override the underline-stripping above so it
-   clearly reads as clickable and invites a press. */
-a.cite-link,
-a.cite-link:link,
-a.cite-link:visited {
-  color: var(--link-color);
-  text-decoration: underline;
-  text-underline-offset: 2px;
-  cursor: pointer;
-  font-size: 12px;
-  transition: color 0.15s ease;
-}
-a.cite-link:hover,
-a.cite-link:active {
-  color: var(--link-hover-color);
-  text-decoration: underline;
-}
-
 /* --- Files Modal Styles --- */
 .files-modal {
     position: fixed;

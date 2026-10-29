@@ -1594,11 +1594,6 @@ export class Input {
         this._relCarryX = 0;
         this._relCarryY = 0;
         this._pointerScaleFrame = null;
-        /**
-         * Multiplier applied to pointer-locked relative motion, 1 meaning the
-         * browser's delta reaches the server unchanged (`_relativeGain`).
-         */
-        this.pointerGain = Input._storedPointerGain();
         this._pendingMove = null;
         this._moveFlushScheduled = false;
         /** When the last pointer motion message went out (`performance.now()`). */
@@ -1800,40 +1795,6 @@ export class Input {
      * feel is a per-player preference (the slider), not a product default.
      */
     static POINTER_GAIN_DEFAULT = 1;
-
-    /**
-     * Storage key the pointer-locked gain is kept under (`setPointerGain`).
-     *
-     * Versioned: the unversioned key is where builds before #75 wrote whatever
-     * a player had dragged the slider to, and one of those leftovers (a page
-     * that had been tuned against a host with pointer acceleration still on,
-     * where ~2x was needed to compensate) would silently override any new
-     * default. Bumping the suffix retires those values once; the old key is
-     * removed on read so it cannot come back.
-     */
-    static POINTER_GAIN_KEY = 'selkies-pointer-gain-v2';
-
-    /** Retired key, dropped whenever the gain is read (#75). */
-    static POINTER_GAIN_KEY_V1 = 'selkies-pointer-gain';
-
-    /**
-     * The relative-motion gain this page last stored, or the default.
-     *
-     * 1 means "send the browser's delta as it is", which is what a game expects
-     * from pointer lock: the same physical distance turns the camera the same
-     * amount, whatever the size of the stream box on this page.
-     */
-    static _storedPointerGain() {
-        try {
-            // Drop the pre-#75 value even when the new key holds nothing, so a
-            // stale compensation cannot outlive the reason it existed.
-            window.localStorage.removeItem(Input.POINTER_GAIN_KEY_V1);
-            const raw = window.localStorage.getItem(Input.POINTER_GAIN_KEY);
-            const value = raw === null ? NaN : Number(raw);
-            if (Number.isFinite(value) && value > 0) return Math.min(value, 4);
-        } catch (e) { /* storage unavailable */ }
-        return Input.POINTER_GAIN_DEFAULT;
-    }
 
     /**
      * Whether the engine's own record of where the viewport sits on the
@@ -3994,30 +3955,16 @@ export class Input {
      * deltas past the host's mouse-acceleration thresholds — the observed
      * "nudge the mouse, the view whips around" (#74).
      *
-     * What is left is `pointerGain`: 1 by default (the browser's delta reaches
-     * the server unchanged, matching `unadjustedMovement`), adjustable for
-     * players who want a different feel (`setPointerGain`). Absolute coordinates
-     * still go through `_pointerScale` — clicks must stay accurate.
+     * Nothing else is applied here either. The panel's "mouse DPI" is the
+     * host's own pointer speed (`selkies-wr-core.js` sends `md,<dpi>`, the
+     * server calls `SPI_SETMOUSESPEED`), so the host pointer, the desktop and
+     * every game share one sensitivity. A gain multiplied in here would move
+     * only the locked path and leave the rest of the desktop disagreeing with
+     * it (#90). Absolute coordinates still go through `_pointerScale` — clicks
+     * must stay accurate.
      */
     _relativeToServer(cssX, cssY) {
-        const gain = this.pointerGain;
-        return this._quantizeRelative(cssX * gain, cssY * gain);
-    }
-
-    /**
-     * Sets the multiplier applied to pointer-locked motion, and stores it for
-     * this page. 1 leaves the browser's delta untouched; values are clamped to
-     * (0, 4] so a bad stored value cannot freeze or fling the pointer.
-     * @param {number} gain
-     */
-    setPointerGain(gain) {
-        const value = Number(gain);
-        const next = (Number.isFinite(value) && value > 0) ? Math.min(value, 4) : 1;
-        if (this.pointerGain === next) return;
-        this.pointerGain = next;
-        try {
-            window.localStorage.setItem(Input.POINTER_GAIN_KEY, String(next));
-        } catch (e) { /* storage unavailable */ }
+        return this._quantizeRelative(cssX, cssY);
     }
 
     /** Maps a touch point into `this.x`/`this.y` and moves the page-drawn cursor to it. */

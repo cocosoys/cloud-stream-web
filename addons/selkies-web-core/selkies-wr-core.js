@@ -1583,9 +1583,16 @@ export default function webrtc() {
 		return (useCssScaling && !window.manualResolution) ? 96 : scalingDPI;
 	}
 
-	/** Sends the desktop the DPI in force. */
+	/**
+	 * Sends the desktop the DPI in force.
+	 *
+	 * `dd,<dpi>` — the host's own UI scaling, DPI against 96 — not the `s,`
+	 * line this used to send. `s` is in the server's ignored group, so every
+	 * scaling pick the panel ever posted died on the wire; `dd` is the command
+	 * the server acts on (#90).
+	 */
 	function pushScalingDpi() {
-		try { webrtc.sendDataChannelMessage(`s,${effectiveScalingDpi()}`); } catch (_) { /* reconnect reseeds */ }
+		try { webrtc.sendDataChannelMessage(`dd,${effectiveScalingDpi()}`); } catch (_) { /* reconnect reseeds */ }
 	}
 
 	/**
@@ -1990,6 +1997,36 @@ export default function webrtc() {
 				console.log("Restoring the host display mode");
 				webrtc.sendDataChannelMessage("dr,reset");
 				break;
+			// #90: the panel's "mouse DPI" is the HOST's pointer speed, not a
+			// gain multiplied into locked deltas. `md,` makes the server call
+			// `SPI_SETMOUSESPEED`, so the host pointer, the desktop and every
+			// game share one sensitivity — which is the whole point of naming it
+			// in DPI. The server answers with `mouse_dpi` naming the step it
+			// actually reached, because Windows only has twenty of them.
+			case "setHostMouseDpi": {
+				if (isSharedMode) { break; }
+				const dpi = parseInt(message.dpi, 10);
+				if (!Number.isFinite(dpi) || dpi <= 0) {
+					console.warn('setHostMouseDpi: not a DPI:', message.dpi);
+					break;
+				}
+				console.log(`Asking the host pointer to run at ${dpi} DPI`);
+				webrtc.sendDataChannelMessage(`md,${dpi}`);
+				break;
+			}
+			// #90: UI scaling — Settings > Display > Scale on the host, in DPI
+			// against 96 (96 = 100 %). Answered with `ui_scale`.
+			case "setHostUiScale": {
+				if (isSharedMode) { break; }
+				const dpi = parseInt(message.dpi, 10);
+				if (!Number.isFinite(dpi) || dpi <= 0) {
+					console.warn('setHostUiScale: not a DPI:', message.dpi);
+					break;
+				}
+				console.log(`Asking the host UI to scale to ${Math.round(dpi / 96 * 100)}%`);
+				webrtc.sendDataChannelMessage(`dd,${dpi}`);
+				break;
+			}
 			case "setManualResolution": {
 				if (isSharedMode) { break; }
 				if (window.enable_resize === false && storageDisplayId !== 'display2') {
@@ -3793,6 +3830,20 @@ export default function webrtc() {
 				console.log("Host display mode result:", JSON.stringify(obj));
 				window.postMessage(
 					{ type: "hostDisplayResult", payload: obj },
+					window.location.origin
+				);
+			};
+			// #90: `md,<dpi>` / `dd,<dpi>` ack. As with the display-mode ack,
+			// the dashboard owns the control and its status line; the core only
+			// relays — and keeps `scalingDPI` in step when the host landed on a
+			// different step than the one asked for.
+			webrtc.onhostknob = (obj) => {
+				console.log("Host knob result:", JSON.stringify(obj));
+				if (obj && obj.type === "ui_scale" && Number.isFinite(obj.applied)) {
+					scalingDPI = obj.applied;
+				}
+				window.postMessage(
+					{ type: "hostKnobResult", payload: obj },
 					window.location.origin
 				);
 			};

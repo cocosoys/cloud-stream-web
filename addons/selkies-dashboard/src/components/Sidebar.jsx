@@ -152,6 +152,16 @@ const commonResolutionValues = [
   "320x240",
 ];
 
+/**
+ * The UI-scaling steps, in DPI against 96 (`percent = dpi / 96 * 100`).
+ *
+ * 275 % is absent on purpose. Windows' own list steps in 25s up to 250 and in
+ * 50s after that (100, 125, 150, 175, 200, 225, 250, 300, 350, ...), so a
+ * 275 % entry is an option the host can never land on — and an option that
+ * silently does nothing is worse than one that is not there. The server's
+ * `scaling_dpi.allowed` is this same list; this copy only covers the moment
+ * before the first `server_settings` arrives.
+ */
 const dpiScalingOptions = [
   { label: "100%", value: 96 },
   { label: "125%", value: 120 },
@@ -160,8 +170,28 @@ const dpiScalingOptions = [
   { label: "200%", value: 192 },
   { label: "225%", value: 216 },
   { label: "250%", value: 240 },
-  { label: "275%", value: 264 },
   { label: "300%", value: 288 },
+];
+
+/**
+ * The host pointer's default speed as DPI: Windows' step 10, the value a clean
+ * profile is at. Anything the slider shows is a step the host can actually be
+ * put on, and 400 is the one that means "leave it alone".
+ */
+const DEFAULT_MOUSE_DPI = 400;
+
+/** Steps the host offers below this read as "the pointer barely moves"; the slider starts at 100. */
+const MIN_SHOWN_MOUSE_DPI = 100;
+
+/**
+ * The pointer slider's stops before the first `server_settings` arrives: the
+ * same twenty speed steps the server announces, minus the four under 100 DPI.
+ * Kept in step with `dispatch::hostui::SPEED_DPI` — a stop the host cannot take
+ * would be a thumb position that does nothing.
+ */
+const FALLBACK_MOUSE_DPI_STOPS = [
+  100, 150, 200, 250, 300, 350, 400, 450, 500, 600, 700, 800, 900, 1000, 1100,
+  1200, 1400,
 ];
 /**
  * Browser language, resolved once: language, form factor, and display density
@@ -1475,22 +1505,32 @@ function Sidebar() {
   const [macCmdAsCtrl, setMacCmdAsCtrl] = useConditionalSetting(
     MAC_CMD_AS_CTRL_SPEC, serverSettings, conditionalCtx, [serverSettings]);
   /**
-   * Gain applied to pointer-locked motion (#74). Lives in the core, not in the
-   * settings payload: it is a per-browser preference about feel, carries no
-   * server meaning, and the core stores it under its own key so the value
-   * survives a reload without a `SETTINGS` round trip.
+   * The host pointer's speed, shown as DPI (#90).
+   *
+   * This is not a gain the browser multiplies into the deltas it sends: the
+   * value goes to the host, which calls `SPI_SETMOUSESPEED`, so the pointer
+   * the desktop, the launcher and the game all read is the one being set. A
+   * client-side gain only ever pulled the pointer-locked path and left the rest
+   * of the desktop disagreeing with it.
+   *
+   * Windows has twenty speed steps and no more, so the slider's stops are the
+   * server's `mouse_dpi.allowed` and a typed value snaps to the nearest one.
+   * The stored pick is only what this page last asked for; `server_settings`
+   * carries what the host is actually at, which wins once it arrives.
    */
-  const [pointerGain, setPointerGainValue] = useState(() => {
-    const core = typeof window !== "undefined" ? window.webrtcInput : null;
-    const value = Number(core?.pointerGain);
-    return Number.isFinite(value) && value > 0 ? value : 1;
+  const [mouseDpi, setMouseDpi] = useState(() => {
+    const stored = parseInt(localStorage.getItem(getPrefixedKey("mouse_dpi")), 10);
+    return Number.isFinite(stored) && stored > 0 ? stored : DEFAULT_MOUSE_DPI;
   });
-  const handlePointerGainChange = useCallback((next) => {
-    const value = Number(next);
-    if (!Number.isFinite(value) || value <= 0) return;
-    setPointerGainValue(value);
-    const core = typeof window !== "undefined" ? window.webrtcInput : null;
-    if (core && typeof core.setPointerGain === "function") core.setPointerGain(value);
+  /** The last `md,<dpi>` answer: `{phase, exact, applied, error}` or null. */
+  const [mouseDpiResult, setMouseDpiResult] = useState(null);
+  const handleMouseDpiChange = useCallback((next) => {
+    const dpi = Math.round(Number(next));
+    if (!Number.isFinite(dpi) || dpi <= 0) return;
+    setMouseDpi(dpi);
+    setMouseDpiResult(null);
+    localStorage.setItem(getPrefixedKey("mouse_dpi"), String(dpi));
+    window.postMessage({ type: "setHostMouseDpi", dpi }, window.location.origin);
   }, []);
   /**
    * The cursor value the core reports as in effect (multi-monitor forces
@@ -1631,6 +1671,24 @@ function Sidebar() {
     ? serverSettings.audio_bitrate.allowed.map((v) => parseInt(v, 10))
     : audioBitrateOptions;
 
+  /**
+   * The pointer-DPI track: the speed steps the host announced, with the four
+   * below 100 DPI dropped (`SPEED_DPI` starts at 13 — a 25 DPI pointer crawls
+   * and no one picks it, so it only pads the low end of the track). The server
+   * owns the list; the local copy covers the moment before `server_settings`
+   * arrives, and both end at 1400 so a stop can never be a DPI the host cannot
+   * take.
+   */
+  const mouseDpiStops = useMemo(() => {
+    const announced = serverSettings?.mouse_dpi?.allowed;
+    const list = Array.isArray(announced) && announced.length > 0
+      ? announced.map((v) => parseInt(v, 10))
+      : FALLBACK_MOUSE_DPI_STOPS;
+    return list
+      .filter((v) => Number.isFinite(v) && v >= MIN_SHOWN_MOUSE_DPI)
+      .sort((a, b) => a - b);
+  }, [serverSettings]);
+
   const DEBOUNCE_DELAY = 500;
 
   /** One settings poster for the component's lifetime, so a burst coalesces into a single post. */
@@ -1723,6 +1781,20 @@ function Sidebar() {
         final = Number.isNaN(maxAllowed) ? 320000 : maxAllowed;
       }
       setAudioBitrate(final);
+    }
+    const s_mouse_dpi = serverSettings.mouse_dpi;
+    if (s_mouse_dpi) {
+      // The host reports the speed step it is on, so a browser that has never
+      // touched this control shows the pointer the desktop is really running.
+      // A stored pick that is still a real step wins, so a reload keeps the
+      // player's DPI instead of snapping back to whatever the OS default is.
+      const stored = getStoredInt("mouse_dpi");
+      const allowed = (s_mouse_dpi.allowed || []).map((v) => parseInt(v, 10));
+      const hosted = parseInt(s_mouse_dpi.value, 10);
+      const final = allowed.includes(stored)
+        ? stored
+        : (Number.isFinite(hosted) ? hosted : DEFAULT_MOUSE_DPI);
+      setMouseDpi(final);
     }
     const s_video_crf = serverSettings.video_crf;
     if (s_video_crf) {
@@ -2533,6 +2605,47 @@ function Sidebar() {
   }, []);
 
   /**
+   * #90 — `md,<dpi>` is answered with a `mouse_dpi` message (relayed as
+   * `hostKnobResult`). Windows has twenty speed steps and nothing in between,
+   * so the answer carries the step it actually reached: the slider moves to
+   * that value instead of showing a DPI the host is not at, and `exact: false`
+   * says the nearest step was used.
+   */
+  useEffect(() => {
+    const onHostKnobResult = (event) => {
+      if (event.origin !== window.location.origin) return;
+      const message = event.data;
+      if (!message || message.type !== "hostKnobResult") return;
+      const payload = message.payload || {};
+      if (payload.type !== "mouse_dpi") return;
+      if (payload.error) {
+        // The host kept the pointer it had. Drop the stored pick so the next
+        // `server_settings` sync shows the host's real speed instead of
+        // re-asserting a value the host refused.
+        localStorage.removeItem(getPrefixedKey("mouse_dpi"));
+        setMouseDpiResult({ phase: "error", error: payload.error });
+        return;
+      }
+      const applied = parseInt(payload.applied, 10);
+      if (Number.isFinite(applied)) {
+        setMouseDpi(applied);
+        // Store what the host took, not what was asked: Windows rounds to its
+        // 20 steps, and the sync prefers the stored pick — a stored 777 the
+        // host answered with 800 would come back as 777 on the next payload.
+        localStorage.setItem(getPrefixedKey("mouse_dpi"), String(applied));
+      }
+      setMouseDpiResult({
+        phase: "ok",
+        exact: payload.exact !== false,
+        applied,
+        requested: parseInt(payload.requested, 10),
+      });
+    };
+    window.addEventListener("message", onHostKnobResult);
+    return () => window.removeEventListener("message", onHostKnobResult);
+  }, []);
+
+  /**
    * #89 — ask the host to adopt this window's stream size as its real display
    * mode. Deliberately not `handleResetResolution`: that one only retargets the
    * scaler, so the 1920x1080 host desktop is squeezed into the window and the
@@ -3004,6 +3117,13 @@ function Sidebar() {
     && !!tenBitOffered;
   const showJpegOptions = encoder === 'jpeg';
   /**
+   * The server compiles in one encoder, so `locked` would normally hide the row
+   * (`isRenderable`). Still worth showing: the row's whole point is to answer
+   * "what is encoding this stream", and the answer used to be the panel's own
+   * local default. One option, disabled — a fact, not a choice.
+   */
+  const fixedEncoder = (serverSettings?.encoder?.allowed?.length ?? 0) === 1;
+  /**
    * The mode the encoder is actually using, which picks the quality slider:
    * the server's when rate control is disabled.
    */
@@ -3418,7 +3538,7 @@ function Sidebar() {
                       </select>{" "}
                     </div>
                   )}
-                {(renderableSettings.encoder ?? true) && (
+                {((renderableSettings.encoder ?? true) || fixedEncoder) && (
                   <div className="dev-setting-item">
                     <label htmlFor="encoderSelect">
                       {t("sections.video.encoderLabel")}
@@ -3612,24 +3732,33 @@ function Sidebar() {
                   />
                 )}
                 {showH264Options && (renderableSettings.videoStreamingMode ?? true) && (
-                  <div className="dev-setting-item toggle-item">
-                    <label 
-                      htmlFor="videoStreamingModeToggle"
-                      title={t("sections.video.streamingModeDetails")}
-                    >
-                      {t("sections.video.streamingModeLabel", "Turbo")}
-                    </label>
-                    <button
-                      id="videoStreamingModeToggle"
-                      className={`toggle-button-sidebar ${videoStreamingMode ? "active" : ""}`}
-                      onClick={handleH264StreamingModeToggle}
-                      aria-pressed={videoStreamingMode}
-                      disabled={!serverSettings || serverSettings.video_streaming_mode?.locked}
-                      title={t(videoStreamingMode ? "buttons.videoStreamingModeDisableTitle" : "buttons.videoStreamingModeEnableTitle")}
-                    >
-                      <span className="toggle-button-sidebar-knob"></span>
-                    </button>
-                  </div>
+                  <>
+                    <div className="dev-setting-item toggle-item">
+                      <label 
+                        htmlFor="videoStreamingModeToggle"
+                        title={t("sections.video.streamingModeDetails")}
+                      >
+                        {t("sections.video.streamingModeLabel", "Turbo")}
+                      </label>
+                      <button
+                        id="videoStreamingModeToggle"
+                        className={`toggle-button-sidebar ${videoStreamingMode ? "active" : ""}`}
+                        onClick={handleH264StreamingModeToggle}
+                        aria-pressed={videoStreamingMode}
+                        disabled={!serverSettings || serverSettings.video_streaming_mode?.locked}
+                        title={t(videoStreamingMode ? "buttons.videoStreamingModeDisableTitle" : "buttons.videoStreamingModeEnableTitle")}
+                      >
+                        <span className="toggle-button-sidebar-knob"></span>
+                      </button>
+                    </div>
+                    {/* What the switch means here, in the panel, where it is
+                        read — a tooltip alone is a description nobody hovers. */}
+                    <p className="host-display-note">
+                      {t(videoStreamingMode
+                        ? "sections.video.streamingModeOnNote"
+                        : "sections.video.streamingModeOffNote")}
+                    </p>
+                  </>
                 )}
                 {showFullColor && (renderableSettings.videoFullColor ?? true) && fullColorDecodable && (
                   <div className="dev-setting-item toggle-item">
@@ -3823,20 +3952,41 @@ function Sidebar() {
                     <SliderField
                       id="pointerGainSlider"
                       label={t("sections.screen.pointerGainName", "指针灵敏度")}
-                      note={Math.abs(pointerGain - 1) < 0.001
-                        ? t("sections.screen.pointerGainDefault", "默认") : null}
-                      unit="%"
-                      // The core works in a multiplier; the panel talks percent.
-                      value={pointerGain}
-                      scale={100}
-                      decimals={0}
-                      min={0.25}
-                      max={3}
-                      step={0.05}
-                      onChange={handlePointerGainChange}
+                      note={mouseDpi === DEFAULT_MOUSE_DPI
+                        ? t("sections.screen.pointerGainDefault", "默认")
+                        : (mouseDpiResult?.phase === "ok" && !mouseDpiResult.exact
+                          ? t("sections.screen.pointerDpiNearest", "已取最接近的档")
+                          : null)}
+                      unit="DPI"
+                      value={mouseDpi}
+                      stops={mouseDpiStops}
+                      snap
+                      min={MIN_SHOWN_MOUSE_DPI}
+                      max={mouseDpiStops[mouseDpiStops.length - 1]}
+                      onChange={handleMouseDpiChange}
                       title={t("sections.screen.pointerGainTitle",
-                        "指针锁定后，同样的鼠标位移让视角转多远。100%（默认）原样透传浏览器的位移，与被控端本机操作的手感一致；转过头就调低，发涩就调高。")}
+                        "写进被控机系统的指针速度（SPI_SETMOUSESPEED），不是浏览器自己乘的倍数：桌面、启动器和游戏读到的都是这一个灵敏度。Windows 只有 20 档速度，填写的数值会落到最接近的一档；400 DPI 是系统默认（速度档 10）。")}
                     />
+                    {mouseDpiResult && (
+                      <p className="host-display-note" role="status">
+                        {mouseDpiResult.phase === "error" && (
+                          <>
+                            {t("sections.screen.pointerDpiFailed", "被控端拒绝了这次设置：")}
+                            {" "}
+                            {mouseDpiResult.error}
+                          </>
+                        )}
+                        {mouseDpiResult.phase === "ok" && (
+                          <>
+                            {mouseDpiResult.exact
+                              ? t("sections.screen.pointerDpiExact", "被控端指针已切到")
+                              : t("sections.screen.pointerDpiInexact", "被控端只有这些档，已切到最接近的")}
+                            {" "}
+                            <strong>{mouseDpiResult.applied} DPI</strong>
+                          </>
+                        )}
+                      </p>
+                    )}
                     {(renderableSettings.macCmdAsCtrl ?? false) && (
                       <div className="dev-setting-item toggle-item">
                         <label htmlFor="macCmdAsCtrlToggle">
@@ -4709,17 +4859,6 @@ function Sidebar() {
                         <span>{sc.label}</span>
                       </div>
                     ))}
-                    <div style={{ marginTop: "8px", textAlign: "center" }}>
-                      <a
-                        className="cite-link"
-                        href="https://docs.selkies.io/citation/"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        {t("sections.shortcuts.citeNotice", "Cite our paper academically")}
-                        {" ↗"}
-                      </a>
-                    </div>
                   </div>
                 )}
               </div>

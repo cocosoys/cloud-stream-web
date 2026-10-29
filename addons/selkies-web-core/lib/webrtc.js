@@ -229,6 +229,14 @@ export class WebRTCClient {
 		 */
 		this.ondisplayresolution = null;
 
+		/**
+		 * #90: ack for `md,<dpi>` (pointer speed) and `dd,<dpi>` (UI scaling).
+		 * Both are flat objects carrying `requested`, `applied`, `exact` and,
+		 * on failure, `error`; `type` says which one landed.
+		 * @type {?function(Object): void}
+		 */
+		this.onhostknob = null;
+
 		/** @type {?function(Object): void} */
 		this.ondisplaysettings = null;
 
@@ -806,6 +814,15 @@ export class WebRTCClient {
 			// settings messages.
 			if (this.ondisplayresolution !== null) {
 				this.ondisplayresolution(msg);
+			}
+		} else if (msg.type === 'mouse_dpi' || msg.type === 'ui_scale') {
+			// #90: reply to `md,<dpi>` / `dd,<dpi>`. Flat like
+			// `display_resolution` — `requested` / `applied` / `exact`, plus
+			// `error` when the host refused. Without this branch the unknown
+			// type falls through to `_setError("Unhandled message received")`,
+			// which design 5.7 treats as a protocol break.
+			if (this.onhostknob !== null) {
+				this.onhostknob(msg);
 			}
 		} else if (msg.type === 'display_settings') {
 			if (this.ondisplaysettings !== null) {
