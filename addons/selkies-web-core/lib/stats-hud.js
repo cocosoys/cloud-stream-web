@@ -40,6 +40,12 @@ const ROWS = [
   { key: 'peak', label: 'Peak 250ms', of: (s) => mbps(s.peak_mbps) },
   { key: 'send', label: 'Cap→sent', of: (s) => span(s.send_ms, s.send_min_ms, s.send_max_ms) },
   { key: 'encode', label: 'Encode', of: (s) => num(s.encode_ms, 1, ' ms') },
+  // #84: the server's QoS controller backs the encoder off when the link is
+  // the bottleneck. Without this line a deliberately reduced rate looks like a
+  // broken encoder — `Target` above drops while `Video` follows it.
+  { key: 'qos', label: 'QoS', of: (s) => (typeof s.throttled === 'boolean'
+    ? (s.throttled ? 'throttled' : 'full rate')
+    : '\u2013') },
   { key: 'rtt', label: 'RTT', of: (s) => num(s.rtt_ms, 1, ' ms') },
   { key: 'loss', label: 'Loss', of: (s) => num(s.packet_loss_percent, 2, ' %') },
   { key: 'kf', label: 'Keyframes', of: (s) => num(s.keyframe_requests, 0) },
