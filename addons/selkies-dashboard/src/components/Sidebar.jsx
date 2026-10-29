@@ -62,7 +62,8 @@ import { hardwareKeyboard } from "../../../selkies-web-core/lib/hardware-keyboar
 import { switchStreamMode } from "../../../selkies-web-core/lib/mode-switch.js";
 import { fragmentWithSessionToken, shareablePageURL, urlFragmentKeyword } from "../../../selkies-web-core/lib/page-url.js";
 import { BITRATE_STOPS, CRF_STOPS, FRAMERATE_STOPS, framerateStopIndex, stopIndex, stopsWithin, withDisplayStop } from "../../../selkies-web-core/lib/slider-stops.js";
-import { FRAMERATE_DISPLAY, followsDisplay, framerateLabel, matchDisplay } from "../../../selkies-web-core/lib/display-refresh.js";
+import { FRAMERATE_DISPLAY, FRAMERATE_UNLIMITED, followsDisplay, matchDisplay } from "../../../selkies-web-core/lib/display-refresh.js";
+import SliderField from "./SliderField.jsx";
 import { PALETTE_CHORDS, PALETTE_KEYS, TRACKPAD_SPEEDS, TRACKPAD_SPEED_KEY, USER_CHORDS_KEY, chordEvents,
   formatChord, parseChord, readUserChords, writeUserChords } from "../../../selkies-web-core/lib/touch-controls.js";
 import { resolveSpec, isSettingPinned, HIDPI_SPEC, RATE_CONTROL_SPEC,
@@ -1354,10 +1355,12 @@ function Sidebar() {
   const [webcamEncoderChoice, setWebcamEncoderChoice] = useState(
     localStorage.getItem(getPrefixedKey("webcam_encoder"))
   );
-  const [framerate, setFramerate] = useState(
-    parseFloat(localStorage.getItem(getPrefixedKey("framerate"))) ||
-      DEFAULT_FRAMERATE
-  );
+  const [framerate, setFramerate] = useState(() => {
+    // `|| DEFAULT` would swallow a stored 0, which is the "no limit" choice —
+    // it is a real setting, not a missing one.
+    const stored = parseFloat(localStorage.getItem(getPrefixedKey("framerate")));
+    return Number.isFinite(stored) ? stored : DEFAULT_FRAMERATE;
+  });
   /** The stored frame-rate choice: a rate, `FRAMERATE_DISPLAY`, or null for none. */
   const [framerateChoice, setFramerateChoice] = useState(() => readStored("framerate"));
   /** The display's refresh the core measured, null until it has. */
@@ -1482,8 +1485,8 @@ function Sidebar() {
     const value = Number(core?.pointerGain);
     return Number.isFinite(value) && value > 0 ? value : 1;
   });
-  const handlePointerGainChange = useCallback((event) => {
-    const value = Number(event.target.value);
+  const handlePointerGainChange = useCallback((next) => {
+    const value = Number(next);
     if (!Number.isFinite(value) || value <= 0) return;
     setPointerGainValue(value);
     const core = typeof window !== "undefined" ? window.webrtcInput : null;
@@ -1618,8 +1621,15 @@ function Sidebar() {
     });
     return () => { live = false; };
   }, [serverEncoderList, isWebrtc]);
-  /** Audio bitrate stops the slider indexes into: the server's allowed enum, else the local list. */
-  const audioBitrateChoices = (serverSettings?.audio_bitrate?.allowed?.map((v) => parseInt(v, 10))) || audioBitrateOptions;
+  /**
+   * Audio bitrate stops the slider indexes into: the server's allowed enum, else
+   * the local list. `allowed: []` means the server named none, and an empty
+   * array is truthy — checking the length keeps the track from being built out
+   * of no stops at all.
+   */
+  const audioBitrateChoices = serverSettings?.audio_bitrate?.allowed?.length
+    ? serverSettings.audio_bitrate.allowed.map((v) => parseInt(v, 10))
+    : audioBitrateOptions;
 
   const DEBOUNCE_DELAY = 500;
 
@@ -1682,9 +1692,15 @@ function Sidebar() {
     const s_framerate = serverSettings.framerate;
     if (s_framerate) {
       const stored = parseFloat(localStorage.getItem(getPrefixedKey("framerate")));
-      const final = !isNaN(stored)
-        ? Math.max(s_framerate.min, Math.min(s_framerate.max, stored))
-        : s_framerate.default;
+      // 0 is the panel's "no limit" stop, which the server advertises with
+      // `uncapped`; clamping it up to `min` would silently turn "no limit" into
+      // ten frames a second.
+      const unlimited = stored === FRAMERATE_UNLIMITED && s_framerate.uncapped === true;
+      const final = unlimited
+        ? FRAMERATE_UNLIMITED
+        : !isNaN(stored)
+          ? Math.max(s_framerate.min, Math.min(s_framerate.max, stored))
+          : s_framerate.default;
       setFramerate(final);
     }
     const s_video_bitrate = serverSettings.video_bitrate;
@@ -2204,52 +2220,57 @@ function Sidebar() {
   /**
    * The frame rate, bitrate, and CRF sliders carry an index into their stops;
    * the display's own stop asks for the display's refresh wherever it moves.
+   *
+   * The frame-rate track ends on "no limit" (`FRAMERATE_UNLIMITED`), which is
+   * sent to the server as `framerate: 0`: no timer, one encode per frame the
+   * desktop produced. It is checked first because it is not a rate and nothing
+   * below it (a stop lookup, a clamp) would leave it alone.
    */
-  const handleFramerateChange = (event) => {
-    const index = parseInt(event.target.value, 10);
-    const selectedFramerate = framerateOptions.stops[index];
-    if (selectedFramerate === undefined) return;
-    const choice = index === framerateOptions.display ? FRAMERATE_DISPLAY : selectedFramerate;
-    setFramerate(selectedFramerate);
+  const handleFramerateChange = (value, index) => {
+    if (value === FRAMERATE_UNLIMITED) {
+      setFramerate(FRAMERATE_UNLIMITED);
+      setFramerateChoice(String(FRAMERATE_UNLIMITED));
+      debouncedPostSetting({ framerate: FRAMERATE_UNLIMITED });
+      return;
+    }
+    if (!Number.isFinite(value)) return;
+    const choice = index === framerateOptions.display ? FRAMERATE_DISPLAY : value;
+    setFramerate(value);
     setFramerateChoice(String(choice));
     debouncedPostSetting({ framerate: choice });
   };
-  const handleVideoBitrateChange = (event) => {
-    const index = parseInt(event.target.value, 10);
-    const selectedVideoBitrate = videoBitrateOptions[index];
-    if (selectedVideoBitrate === undefined) return;
-    setVideoBitrate(selectedVideoBitrate)
-    debouncedPostSetting({ video_bitrate: selectedVideoBitrate})
+  const handleVideoBitrateChange = (value) => {
+    if (!Number.isFinite(value)) return;
+    setVideoBitrate(value);
+    debouncedPostSetting({ video_bitrate: value });
   };
   const handleAudioBitrateChange = (selectedAudioBitrate) => {
     if (Number.isNaN(selectedAudioBitrate)) selectedAudioBitrate = DEFAULT_AUDIO_BITRATE;
     setAudioBitrate(selectedAudioBitrate)
     debouncedPostSetting({ audio_bitrate: selectedAudioBitrate})
   }
-  const handleJpegQualityChange = (event) => {
-    const selectedQuality = parseInt(event.target.value, 10);
+  const handleJpegQualityChange = (selectedQuality) => {
+    if (!Number.isFinite(selectedQuality)) return;
     setJpegQuality(selectedQuality);
     debouncedPostSetting({ jpeg_quality: selectedQuality });
   };
-  const handlePaintOverJpegQualityChange = (event) => {
-    const selectedQuality = parseInt(event.target.value, 10);
+  const handlePaintOverJpegQualityChange = (selectedQuality) => {
+    if (!Number.isFinite(selectedQuality)) return;
     setPaintOverJpegQuality(selectedQuality);
     debouncedPostSetting({ paint_over_jpeg_quality: selectedQuality });
   };
-  const handleVideoCRFChange = (event) => {
-    const selectedCRF = videoCRFOptions[parseInt(event.target.value, 10)];
-    if (selectedCRF === undefined) return;
+  const handleVideoCRFChange = (selectedCRF) => {
+    if (selectedCRF === undefined || !Number.isFinite(selectedCRF)) return;
     setVideoCRF(selectedCRF);
     debouncedPostSetting({ video_crf: selectedCRF });
   };
-  const handleH264PaintoverCRFChange = (event) => {
-    const selectedCRF = videoPaintoverCRFOptions[parseInt(event.target.value, 10)];
-    if (selectedCRF === undefined) return;
+  const handleH264PaintoverCRFChange = (selectedCRF) => {
+    if (selectedCRF === undefined || !Number.isFinite(selectedCRF)) return;
     setVideoPaintoverCRF(selectedCRF);
     debouncedPostSetting({ video_paintover_crf: selectedCRF });
   };
-  const handleH264PaintoverBurstChange = (event) => {
-    const selectedFrames = parseInt(event.target.value, 10);
+  const handleH264PaintoverBurstChange = (selectedFrames) => {
+    if (!Number.isFinite(selectedFrames)) return;
     setVideoPaintoverBurstFrames(selectedFrames);
     debouncedPostSetting({ video_paintover_burst_frames: selectedFrames });
   };
@@ -3006,6 +3027,16 @@ function Sidebar() {
   const framerateOptions = withDisplayStop(stopsWithin(FRAMERATE_STOPS, framerateSpan?.min ?? 8, framerateSpan?.max ?? 240), displayFramerate);
   const framerateFollows = followsDisplay(framerateChoice, framerateSpan) && displayFramerate !== null;
   const effectiveFramerate = framerateFollows ? displayFramerate : framerate;
+  /**
+   * Whether this server offers the panel's last stop, "no limit" (see
+   * `FRAMERATE_UNLIMITED`). Only a server that says so gets it: a track that
+   * ends on a rate the server would clamp away is worse than one without the
+   * stop.
+   */
+  const canGoUnlimited = serverSettings?.framerate?.uncapped === true
+    && !serverSettings.framerate.locked
+    && serverSettings.framerate.min !== serverSettings.framerate.max;
+  const framerateUncapped = canGoUnlimited && framerate === FRAMERATE_UNLIMITED;
   const videoCRFOptions = stopsWithin(CRF_STOPS, serverSettings?.video_crf?.min ?? 5, serverSettings?.video_crf?.max ?? 50);
   const videoPaintoverCRFOptions = stopsWithin(CRF_STOPS, serverSettings?.video_paintover_crf?.min ?? 5, serverSettings?.video_paintover_crf?.max ?? 50);
   const formatBitrate = (v) => `${v / 1000} Mbps`;
@@ -3447,82 +3478,82 @@ function Sidebar() {
                   </div>
                 )}
                 {(renderableSettings.framerate ?? true) && (
-                  <div className="dev-setting-item">
-                    <label htmlFor="framerateSlider">
-                      {t(framerateFollows ? "sections.video.framerateDisplayLabel" : "sections.video.framerateLabel", {
-                        framerate: framerateLabel(effectiveFramerate),
-                      })}
-                    </label>
-                    <input
-                      type="range"
-                      id="framerateSlider"
-                      min={0}
-                      max={framerateOptions.stops.length - 1}
-                      step="1"
-                      value={framerateStopIndex(framerateOptions, framerate, framerateFollows)}
-                      onChange={handleFramerateChange}
-                      disabled={!serverSettings || serverSettings.framerate?.min === serverSettings.framerate?.max}
-                    />
-                  </div>
+                  <SliderField
+                    id="framerateSlider"
+                    label={t("sections.video.framerateName", "Frame rate")}
+                    note={
+                      framerateUncapped
+                        ? t("sections.video.framerateUnlimitedNote", "no limit")
+                        : framerateFollows
+                          ? t("sections.video.framerateDisplayNote", "follows display")
+                          : null
+                    }
+                    unit="FPS"
+                    // What the thumb stands on: the display's own stop is a
+                    // rate the track may also list fixed, so the position comes
+                    // from the stop list, not from the value.
+                    value={framerateFollows ? framerateOptions.stops[framerateOptions.display] : effectiveFramerate}
+                    stops={framerateOptions.stops}
+                    // "No limit" is the position past the last stop, not the
+                    // nearest one to 0 (which would be the slowest rate here).
+                    index={framerateUncapped
+                      ? framerateOptions.stops.length
+                      : framerateStopIndex(framerateOptions, framerate, framerateFollows)}
+                    uncapped={canGoUnlimited ? FRAMERATE_UNLIMITED : null}
+                    min={framerateSpan?.min ?? 8}
+                    max={framerateSpan?.max ?? 240}
+                    decimals={2}
+                    onChange={handleFramerateChange}
+                    disabled={!serverSettings || serverSettings.framerate?.min === serverSettings.framerate?.max}
+                    title={t("sections.video.framerateSliderTitle",
+                      "How many frames per second the host encodes. The last stop on the right means no limit: the encoder runs on whatever the desktop produces instead of a timer, which is the lowest latency the stream can reach.")}
+                  />
                 )}
                 {showH264Options && appliedRateControlMode === RATE_CONTROL_CBR && (renderableSettings.video_bitrate ?? true) && (
-                  <div className="dev-setting-item">
-                    <label htmlFor="videoBitrateSlider">
-                      {t("sections.video.bitrateLabel", {
-                        bitrate: formatBitrate(videoBitrate),
-                      })}
-                    </label>
-                    <input
-                      type="range"
-                      id="videoBitrateSlider"
-                      min={0}
-                      max={videoBitrateOptions.length - 1}
-                      step="1"
-                      value={bitrateSliderIndex}
-                      onChange={handleVideoBitrateChange}
-                      disabled={!serverSettings || serverSettings.video_bitrate?.min === serverSettings.video_bitrate?.max}
-                    />
-                  </div>
+                  <SliderField
+                    id="videoBitrateSlider"
+                    label={t("sections.video.bitrateName", "Video bitrate")}
+                    note={formatBitrate(videoBitrate)}
+                    unit="kbps"
+                    value={videoBitrate}
+                    stops={videoBitrateOptions}
+                    index={bitrateSliderIndex}
+                    min={serverSettings?.video_bitrate?.min ?? 100}
+                    max={serverSettings?.video_bitrate?.max ?? 1000000}
+                    step={100}
+                    onChange={handleVideoBitrateChange}
+                    disabled={!serverSettings || serverSettings.video_bitrate?.min === serverSettings.video_bitrate?.max}
+                  />
                 )}
                 {!isWebrtc && showJpegOptions && (
                   <>
                     {(renderableSettings.jpeg_quality ?? true) && (
-                      <div className="dev-setting-item">
-                        <label htmlFor="jpegQualitySlider">
-                          {t("sections.video.jpegQualityLabel", {
-                            jpegQuality: jpeg_quality,
-                          })}
-                        </label>
-                        <input
-                          type="range"
-                          id="jpegQualitySlider"
-                          min={serverSettings?.jpeg_quality?.min || 1}
-                          max={serverSettings?.jpeg_quality?.max || 100}
-                          step="1"
-                          value={jpeg_quality}
-                          onChange={handleJpegQualityChange}
-                          disabled={!serverSettings || serverSettings.jpeg_quality?.min === serverSettings.jpeg_quality?.max}
-                        />
-                      </div>
+                      <SliderField
+                        id="jpegQualitySlider"
+                        label={t("sections.video.jpegQualityName", "Base quality")}
+                        unit="%"
+                        value={jpeg_quality}
+                        min={serverSettings?.jpeg_quality?.min || 1}
+                        max={serverSettings?.jpeg_quality?.max || 100}
+                        step={1}
+                        onChange={handleJpegQualityChange}
+                        disabled={!serverSettings || serverSettings.jpeg_quality?.min === serverSettings.jpeg_quality?.max}
+                      />
                     )}
                   </>
                 )}
                 {showCRF && appliedRateControlMode === RATE_CONTROL_CRF && (renderableSettings.video_crf ?? true) && (
-                  <div className="dev-setting-item">
-                    <label htmlFor="videoCRFSlider">
-                      {t("sections.video.crfLabel", { crf: video_crf })}
-                    </label>
-                    <input
-                      type="range"
-                      id="videoCRFSlider"
-                      min={0}
-                      max={videoCRFOptions.length - 1}
-                      step="1"
-                      value={stopIndex(videoCRFOptions, video_crf)}
-                      onChange={handleVideoCRFChange}
-                      disabled={!serverSettings || serverSettings.video_crf?.min === serverSettings.video_crf?.max}
-                    />
-                  </div>
+                  <SliderField
+                    id="videoCRFSlider"
+                    label={t("sections.video.crfName", "CRF")}
+                    note={t("sections.video.crfNote", "lower is better")}
+                    value={video_crf}
+                    stops={videoCRFOptions}
+                    min={serverSettings?.video_crf?.min ?? 5}
+                    max={serverSettings?.video_crf?.max ?? 50}
+                    onChange={handleVideoCRFChange}
+                    disabled={!serverSettings || serverSettings.video_crf?.min === serverSettings.video_crf?.max}
+                  />
                 )}
                 {showPaintOverQualityToggle && (renderableSettings.usePaintOverQuality ?? true) && (
                   <div className="dev-setting-item toggle-item">
@@ -3542,57 +3573,43 @@ function Sidebar() {
                   </div>
                 )}
                 {showCRF && (usePaintOverQuality || cbrVideo) && (renderableSettings.videoPaintoverCRF ?? true) && (
-                  <div className="dev-setting-item">
-                    <label htmlFor="videoPaintoverCRFSlider">
-                      {t("sections.video.paintoverCrfLabel", { crf: videoPaintoverCRF })}
-                    </label>
-                    <input
-                      type="range"
-                      id="videoPaintoverCRFSlider"
-                      min={0}
-                      max={videoPaintoverCRFOptions.length - 1}
-                      step="1"
-                      value={stopIndex(videoPaintoverCRFOptions, videoPaintoverCRF)}
-                      onChange={handleH264PaintoverCRFChange}
-                      disabled={!serverSettings || serverSettings.video_paintover_crf?.min === serverSettings.video_paintover_crf?.max}
-                    />
-                  </div>
+                  <SliderField
+                    id="videoPaintoverCRFSlider"
+                    label={t("sections.video.paintoverCrfName", "Paint-over CRF")}
+                    note={t("sections.video.crfNote", "lower is better")}
+                    value={videoPaintoverCRF}
+                    stops={videoPaintoverCRFOptions}
+                    min={serverSettings?.video_paintover_crf?.min ?? 5}
+                    max={serverSettings?.video_paintover_crf?.max ?? 50}
+                    onChange={handleH264PaintoverCRFChange}
+                    disabled={!serverSettings || serverSettings.video_paintover_crf?.min === serverSettings.video_paintover_crf?.max}
+                  />
                 )}
                 {showH264Options && (usePaintOverQuality || cbrVideo) && (renderableSettings.videoPaintoverBurstFrames ?? true) && (
-                  <div className="dev-setting-item">
-                    <label htmlFor="videoPaintoverBurstSlider">
-                      {t("sections.video.paintoverBurstLabel", { frames: videoPaintoverBurstFrames }, `Paint-over Burst Frames: ${videoPaintoverBurstFrames}`)}
-                    </label>
-                    <input
-                      type="range"
-                      id="videoPaintoverBurstSlider"
-                      min={serverSettings?.video_paintover_burst_frames?.min || 1}
-                      max={serverSettings?.video_paintover_burst_frames?.max || 30}
-                      step="1"
-                      value={videoPaintoverBurstFrames}
-                      onChange={handleH264PaintoverBurstChange}
-                      disabled={!serverSettings || serverSettings.video_paintover_burst_frames?.min === serverSettings.video_paintover_burst_frames?.max}
-                    />
-                  </div>
+                  <SliderField
+                    id="videoPaintoverBurstSlider"
+                    label={t("sections.video.paintoverBurstName", "Paint-over burst")}
+                    unit={t("sections.video.framesUnit", "frames")}
+                    value={videoPaintoverBurstFrames}
+                    min={serverSettings?.video_paintover_burst_frames?.min || 1}
+                    max={serverSettings?.video_paintover_burst_frames?.max || 30}
+                    step={1}
+                    onChange={handleH264PaintoverBurstChange}
+                    disabled={!serverSettings || serverSettings.video_paintover_burst_frames?.min === serverSettings.video_paintover_burst_frames?.max}
+                  />
                 )}
                 {!isWebrtc && showJpegOptions && usePaintOverQuality && (renderableSettings.paint_over_jpeg_quality ?? true) && (
-                  <div className="dev-setting-item">
-                    <label htmlFor="paintOverJpegQualitySlider">
-                      {t("sections.video.paintOverJpegQualityLabel", {
-                        paintOverJpegQuality: paint_over_jpeg_quality,
-                      })}
-                    </label>
-                    <input
-                      type="range"
-                      id="paintOverJpegQualitySlider"
-                      min={serverSettings?.paint_over_jpeg_quality?.min || 1}
-                      max={serverSettings?.paint_over_jpeg_quality?.max || 100}
-                      step="1"
-                      value={paint_over_jpeg_quality}
-                      onChange={handlePaintOverJpegQualityChange}
-                      disabled={!serverSettings || serverSettings.paint_over_jpeg_quality?.min === serverSettings.paint_over_jpeg_quality?.max}
-                    />
-                  </div>
+                  <SliderField
+                    id="paintOverJpegQualitySlider"
+                    label={t("sections.video.paintOverJpegQualityName", "Paint-over quality")}
+                    unit="%"
+                    value={paint_over_jpeg_quality}
+                    min={serverSettings?.paint_over_jpeg_quality?.min || 1}
+                    max={serverSettings?.paint_over_jpeg_quality?.max || 100}
+                    step={1}
+                    onChange={handlePaintOverJpegQualityChange}
+                    disabled={!serverSettings || serverSettings.paint_over_jpeg_quality?.min === serverSettings.paint_over_jpeg_quality?.max}
+                  />
                 )}
                 {showH264Options && (renderableSettings.videoStreamingMode ?? true) && (
                   <div className="dev-setting-item toggle-item">
@@ -3803,26 +3820,23 @@ function Sidebar() {
                         </button>
                       </div>
                     )}
-                    <div className="dev-setting-item">
-                      <label htmlFor="pointerGainSlider">
-                        {t("sections.screen.pointerGainLabel", "Pointer sensitivity")}
-                        {" "}
-                        {Math.round(pointerGain * 100)}%
-                        {Math.abs(pointerGain - 1) < 0.001
-                          ? ` (${t("sections.screen.pointerGainDefault", "default")})` : ""}
-                      </label>
-                      <input
-                        type="range"
-                        id="pointerGainSlider"
-                        min={0.25}
-                        max={3}
-                        step={0.05}
-                        value={pointerGain}
-                        onChange={handlePointerGainChange}
-                        title={t("sections.screen.pointerGainTitle",
-                          "How far the view turns for the same mouse movement under pointer lock. 100% (default) passes the browser's movement through unchanged, which matches playing on the host itself. Lower it if the view overshoots, raise it if it feels sluggish.")}
-                      />
-                    </div>
+                    <SliderField
+                      id="pointerGainSlider"
+                      label={t("sections.screen.pointerGainName", "指针灵敏度")}
+                      note={Math.abs(pointerGain - 1) < 0.001
+                        ? t("sections.screen.pointerGainDefault", "默认") : null}
+                      unit="%"
+                      // The core works in a multiplier; the panel talks percent.
+                      value={pointerGain}
+                      scale={100}
+                      decimals={0}
+                      min={0.25}
+                      max={3}
+                      step={0.05}
+                      onChange={handlePointerGainChange}
+                      title={t("sections.screen.pointerGainTitle",
+                        "指针锁定后，同样的鼠标位移让视角转多远。100%（默认）原样透传浏览器的位移，与被控端本机操作的手感一致；转过头就调低，发涩就调高。")}
+                    />
                     {(renderableSettings.macCmdAsCtrl ?? false) && (
                       <div className="dev-setting-item toggle-item">
                         <label htmlFor="macCmdAsCtrlToggle">
@@ -4073,23 +4087,22 @@ function Sidebar() {
                       </div>
                     )}
                     {(renderableSettings.audio_bitrate ?? true) && (
-                      <div className="dev-setting-item">
-                        <label htmlFor="audioBitrateSlider">
-                          {t("sections.audio.bitrateLabel", {
-                            bitrate: audioBitrate/ 1000,
-                          })}
-                        </label>
-                        <input
-                          type="range"
-                          id="audioBitrateSlider"
-                          min={0}
-                          max={audioBitrateChoices.length - 1}
-                          step={1}
-                          value={Math.max(0, audioBitrateChoices.indexOf(audioBitrate))}
-                          onChange={(e) => handleAudioBitrateChange(audioBitrateChoices[parseInt(e.target.value, 10)])}
-                          disabled={!serverSettings || (serverSettings.audio_bitrate?.allowed?.length ?? 0) <= 1}
-                        />
-                      </div>
+                      <SliderField
+                        id="audioBitrateSlider"
+                        label={t("sections.audio.bitrateName", "Audio bitrate")}
+                        unit="kbps"
+                        // The core and the server speak bits per second; the
+                        // panel has always shown kbps.
+                        value={audioBitrate}
+                        stops={audioBitrateChoices}
+                        index={Math.max(0, audioBitrateChoices.indexOf(audioBitrate))}
+                        snap
+                        scale={1 / 1000}
+                        min={Math.min(...audioBitrateChoices)}
+                        max={Math.max(...audioBitrateChoices)}
+                        onChange={handleAudioBitrateChange}
+                        disabled={!serverSettings || (serverSettings.audio_bitrate?.allowed?.length ?? 0) <= 1}
+                      />
                     )}
                     {!isOutputSelectionSupported &&
                       !isLoadingAudioDevices &&

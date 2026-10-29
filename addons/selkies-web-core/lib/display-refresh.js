@@ -43,6 +43,18 @@
 /** The stored frame rate that asks for the display's own. */
 export const FRAMERATE_DISPLAY = 'display';
 
+/**
+ * The frame rate that asks for no limit: the panel's rightmost stop, sent to
+ * the server as `framerate: 0`.
+ *
+ * It is not a rate and is never compared against one — the server reads it as
+ * "pace on the capture thread, no timer" (`FPS_UNCAPPED` in
+ * `pipeline::settings`), which is why it must not be run through `matchDisplay`
+ * or a `min`/`max` clamp. Stored as the string `'0'`, so `parseFloat` round
+ * trips it and `requestedFramerate` passes it through as a number.
+ */
+export const FRAMERATE_UNLIMITED = 0;
+
 /** An interval at least this long is a gap in the frames, not a refresh, in ms. */
 export const GAP_MS = 250;
 /** The fewest refreshes a measurement stands on. */
