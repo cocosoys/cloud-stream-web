@@ -2040,6 +2040,28 @@ export class Input {
         }
     }
 
+    /**
+     * Re-sends a held keysym as another key-down.
+     *
+     * Windows never auto-repeats an injected key: auto-repeat is a driver
+     * feature, so `SendInput(KEYDOWN)` just sits there until the matching
+     * KEYUP arrives and a held key produces exactly one character. The
+     * browser's own repeat events carry the user's local repeat delay and
+     * rate, so forward them as additional key-downs — the server's
+     * `held_keys` check makes that idempotent, and a target application reads
+     * consecutive downs with no up between them as a repeat.
+     *
+     * Deliberately not routed through `_sendKeyEvent`: that would re-run the
+     * numpad translation on an already-translated keysym, re-note the chord
+     * key and restart the heartbeat once per repeat.
+     * @param {string} code Physical `event.code`.
+     */
+    _sendKeyRepeat(code) {
+        const keysym = this._keyDownList[code];
+        if (keysym === undefined) return;
+        this.send("kd," + keysym);
+    }
+
     /** Starts the `kh` heartbeat of held keysyms; it stops itself once nothing is held. */
     _startKeyHeartbeat() {
         if (this._keyHeartbeatTimer !== null) return;
@@ -2251,6 +2273,7 @@ export class Input {
         if (keycode in this._keyDownList) {
             if (event.repeat) {
                 _stopEvent(event);
+                this._sendKeyRepeat(keycode);
                 return;
             }
             this._releaseLostKey(keycode);
