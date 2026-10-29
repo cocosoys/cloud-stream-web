@@ -9,9 +9,17 @@
  *
  * The core already collects both halves — the server's `stream_stats` and its
  * own receive side — into `window.stream_stats` (`lib/stream-stats.js`), but
- * only a dashboard that posts `statsOpen` ever reads it, and this page has
- * none. So the numbers the server measures (encoder target, capture-to-sent,
- * round-trip, keyframe requests) were being computed and thrown away.
+ * only a dashboard that posts `statsOpen` ever reads it. So the numbers the
+ * server measures (encoder target, capture-to-sent, round-trip, keyframe
+ * requests) would otherwise be computed and thrown away.
+ *
+ * It docks to the **right** edge: the stream is the thing being watched, and a
+ * panel over the top-left corner lands on whatever a game draws its own HUD in.
+ * The right edge also has the least content in practice (desktop icons are on
+ * the left). Next to it sits a narrow tab, the same affordance the dashboard's
+ * sidebar uses on its own edge: clicking it tucks the panel off-screen and
+ * leaves only the tab, clicking again brings it back. That state is remembered,
+ * so a session that wants the numbers out of the way stays that way.
  *
  * Opening the overlay posts `{type: "statsOpen", open: true}` to the same
  * window, which is exactly what a dashboard does (`selkies-wr-core.js:1933`):
@@ -20,7 +28,8 @@
  *
  * Everything is drawn inside a shadow root and re-rendered on the
  * `selkies-stream-stats` event, once per second, with `pointer-events: none`
- * so it can never eat a click meant for the stream.
+ * so it can never eat a click meant for the stream. The tab and the two
+ * pipeline buttons are the only clickable parts.
  * @module
  */
 
@@ -32,6 +41,8 @@ const HOTKEY = 'F3';
 const MIC_HOTKEY = 'F4';
 /** Remembered across loads; the overlay is worth keeping on while tuning. */
 const STORE_KEY = 'cloudstream_stats_hud';
+/** Remembered separately: "on, but tucked into the edge" is a third state. */
+const STORE_TUCKED = 'cloudstream_stats_hud_tucked';
 
 /** One line of the overlay: a label and how to render the current sample. */
 const ROWS = [
@@ -102,18 +113,52 @@ export function installStatsHud() {
   const root = host.attachShadow({ mode: 'open' });
   const style = document.createElement('style');
   style.textContent = `
+    /* The dock is the fixed anchor at the right edge; the panel and its tab are
+       one flex row inside it, so the tab can never drift away from the panel
+       whatever height the row list grows to. */
+    .dock {
+      position: fixed; right: 0; top: 12px; z-index: 2147483000;
+      display: flex; align-items: flex-start; gap: 8px;
+      pointer-events: none;
+    }
+    .dock[hidden] { display: none; }
     .panel {
-      position: fixed; left: 12px; top: 12px; z-index: 2147483000;
+      position: relative;
       font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
       color: #e8eef7; background: rgba(9, 12, 18, 0.82);
       border: 1px solid rgba(120, 160, 220, 0.28); border-radius: 8px;
       padding: 8px 10px; min-width: 232px;
+      max-height: calc(100vh - 24px); overflow-y: auto;
       box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
       pointer-events: none; user-select: none;
       -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
-      transition: opacity 120ms ease;
+      transform: translateX(0); opacity: 1;
+      transition: transform 180ms ease, opacity 180ms ease;
     }
-    .panel[hidden] { display: none; }
+    /* Tucked: slid past the edge far enough that only the tab is left on screen.
+       Layout is untouched (transform, not margin), so the tab does not move. */
+    .dock[data-tucked="1"] .panel {
+      transform: translateX(calc(100% + 16px)); opacity: 0;
+    }
+    /* The grab handle: the same affordance as the dashboard sidebar's edge
+       toggle (`.toggle-handle` / `.toggle-indicator` in the dashboard's
+       Overlay.css) — a bare accent pill on a transparent hit box, so it adds no
+       dark rectangle of its own over the stream. */
+    .tab {
+      flex: 0 0 auto; width: 15px; height: 60px; margin-top: 6px;
+      display: flex; align-items: center; justify-content: center;
+      padding: 0; background: none; border: none; cursor: pointer;
+      /* The one part of the overlay that must accept clicks while tucked. */
+      pointer-events: auto;
+    }
+    .tab::before {
+      content: ''; width: 4px; height: 44px; border-radius: 999px;
+      background: #ec4899; opacity: 0.7;
+      transition: opacity 150ms ease, width 150ms ease;
+    }
+    .tab:hover::before { opacity: 1; width: 6px; }
+    .tab:focus-visible { outline: none; }
+    .tab:focus-visible::before { opacity: 1; width: 6px; }
     .row { display: flex; justify-content: space-between; gap: 14px; }
     .k { color: #8fa3bd; }
     .v { font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -165,11 +210,51 @@ export function installStatsHud() {
   hint.className = 'hint';
   hint.textContent = `F3 hides this \u00b7 F4 mic`;
   panel.append(hint);
-  root.append(style, panel);
+
+  // The edge tab. Same gesture as the dashboard sidebar's handle: one click
+  // tucks the panel away, the next brings it back.
+  const tab = document.createElement('button');
+  tab.className = 'tab';
+  tab.type = 'button';
+  tab.setAttribute('aria-controls', 'selkies-stats-panel');
+  panel.id = 'selkies-stats-panel';
+
+  const dock = document.createElement('div');
+  dock.className = 'dock';
+  dock.append(panel, tab);
+  root.append(style, dock);
   document.body.append(host);
 
-  /** Whether the overlay is on screen, which is also the server subscription. */
+  /** Whether the panel is on screen, which is also the server subscription. */
   let shown = false;
+  /** Whether the panel is tucked into the right edge (visible, but out of the way). */
+  let tucked = false;
+
+  const paintTab = () => {
+    // The pill has no room for a chevron; the tooltip and the ARIA state carry
+    // the direction instead.
+    tab.title = tucked ? 'Show the stats panel' : 'Hide the stats panel';
+    tab.setAttribute('aria-label', tab.title);
+    tab.setAttribute('aria-expanded', tucked ? 'false' : 'true');
+    dock.dataset.tucked = tucked ? '1' : '0';
+  };
+
+  const setTucked = (next) => {
+    tucked = !!next;
+    paintTab();
+    try {
+      localStorage.setItem(STORE_TUCKED, tucked ? '1' : '0');
+    } catch (_) {
+      // Storage disabled: the fold just does not outlive the page.
+    }
+  };
+
+  tab.addEventListener('click', (event) => {
+    // The tab sits over the stream in gaming mode; a stray press must not also
+    // reach the pointer-lock handler.
+    event.stopPropagation();
+    setTucked(!tucked);
+  });
 
   /** Posts what a dashboard would post: the core owns the subscription. */
   const announce = (open) => {
@@ -200,7 +285,9 @@ export function installStatsHud() {
 
   const show = (open) => {
     shown = !!open;
-    panel.hidden = !shown;
+    // F3 is all-or-nothing: the dock (panel *and* tab) disappears, and with it
+    // the `_stats,1` subscription.
+    dock.hidden = !shown;
     try {
       localStorage.setItem(STORE_KEY, shown ? '1' : '0');
     } catch (_) {
@@ -269,10 +356,13 @@ export function installStatsHud() {
   // update should show them without hunting for a hotkey. A session that
   // turned it off keeps it off.
   let remembered = '1';
+  let rememberedTucked = '0';
   try {
     remembered = localStorage.getItem(STORE_KEY) ?? '1';
+    rememberedTucked = localStorage.getItem(STORE_TUCKED) ?? '0';
   } catch (_) {
     // Private mode with storage disabled: stay on the default.
   }
+  setTucked(rememberedTucked === '1');
   show(remembered !== '0');
 }
