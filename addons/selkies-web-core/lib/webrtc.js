@@ -222,6 +222,13 @@ export class WebRTCClient {
 		/** @type {?function(Object): void} */
 		this.onserversettings = null;
 
+		/**
+		 * #89: ack for a `dr,WxH` host display-mode request. Carries
+		 * `requested`, `applied`, `exact` and (on failure) `error`.
+		 * @type {?function(Object): void}
+		 */
+		this.ondisplayresolution = null;
+
 		/** @type {?function(Object): void} */
 		this.ondisplaysettings = null;
 
@@ -792,6 +799,13 @@ export class WebRTCClient {
 		} else if (msg.type === 'server_settings') {
 			if (this.onserversettings !== null) {
 				this.onserversettings(msg.data);
+			}
+		} else if (msg.type === 'display_resolution') {
+			// #89: reply to a `dr,WxH` request. The payload is the *flat* object
+			// (`requested`/`applied`/`exact`), not wrapped in `data` like the
+			// settings messages.
+			if (this.ondisplayresolution !== null) {
+				this.ondisplayresolution(msg);
 			}
 		} else if (msg.type === 'display_settings') {
 			if (this.ondisplaysettings !== null) {

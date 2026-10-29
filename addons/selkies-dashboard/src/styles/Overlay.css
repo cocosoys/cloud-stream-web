@@ -1281,6 +1281,31 @@ body {
     box-shadow: var(--focus-ring);
 }
 
+/* --- Host display mode (#89) --- */
+/* Two stacked buttons plus a one-line result. Kept out of
+   .resolution-action-buttons because that row is a pair that shares a width. */
+.host-display-block {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.host-display-note {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--text-muted);
+    /* A failed request carries the driver's own words, which can be long and
+       have no spaces; wrap it instead of pushing the panel wider. */
+    overflow-wrap: anywhere;
+}
+
+.host-display-note strong {
+    color: var(--text);
+    font-weight: 600;
+}
+
 /* Divider style used in Audio Settings. */
 .section-divider {
     border: none;

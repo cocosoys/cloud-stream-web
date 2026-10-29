@@ -5422,6 +5422,26 @@ export class Input {
     }
 
     /**
+     * CSS size of the box the stream is actually drawn into, rounded down to
+     * even. This is the size a host desktop should adopt for a 1:1 stream: the
+     * frame then lands on the page pixel for pixel, `_pointerScale` becomes 1,
+     * and the relative (locked-pointer) path stops lagging the hand.
+     *
+     * Not `getWindowResolution()`: that one is the page in device pixels and
+     * includes the dashboard chrome around the stream, which would ask the host
+     * for a desktop slightly larger than the video it feeds.
+     * @returns {number[]|null} Width and height, or null before the box exists.
+     */
+    getStreamCssSize() {
+        const box = this._streamBox();
+        if (!box || !(box.width > 0) || !(box.height > 0)) {
+            return null;
+        }
+        const even = (v) => Math.max(2, Math.floor(v / 2) * 2);
+        return [even(box.width), even(box.height)];
+    }
+
+    /**
      * The page size in device pixels, rounded down to even.
      * @returns {number[]} Width and height.
      */

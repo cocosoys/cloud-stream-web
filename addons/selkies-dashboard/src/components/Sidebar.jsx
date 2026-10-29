@@ -1391,6 +1391,15 @@ function Sidebar() {
     return saved !== null ? saved === "true" : DEFAULT_SCALE_LOCALLY;
   });
   /**
+   * #89 — outcome of the last "match host to my window" request.
+   * `null` = never asked; `{ phase: "working" }` = request in flight;
+   * `{ phase: "ok", applied, requested, exact }` = the server said where the
+   * host desktop ended up; `{ phase: "error", error }` = the driver refused.
+   * Not persisted: a page reload can no longer tell what the host is at, and
+   * claiming a state we did not observe is worse than showing nothing.
+   */
+  const [hostDisplay, setHostDisplay] = useState(null);
+  /**
    * State the conditional settings read; rebuilt each render so the hooks
    * below re-resolve against current values when their deps change.
    * `encoderBackends` decides whether the software encoding switch is shown.
@@ -2474,6 +2483,48 @@ function Sidebar() {
     );
     resetHidpiToDerivedDefault();
     resetDpiToDerivedDefault();
+  };
+  /**
+   * #89 — the host answers `dr,WxH` with a `display_resolution` message (relayed
+   * by the core as `hostDisplayResult`). A driver that cannot do the exact size
+   * reports `exact: false` alongside the mode it settled on, so the button can
+   * say "nearest mode" instead of pretending the request was honoured.
+   */
+  useEffect(() => {
+    const onHostDisplayResult = (event) => {
+      if (event.origin !== window.location.origin) return;
+      const message = event.data;
+      if (!message || message.type !== "hostDisplayResult") return;
+      const payload = message.payload || {};
+      if (payload.error) {
+        setHostDisplay({ phase: "error", error: payload.error });
+        return;
+      }
+      setHostDisplay({
+        phase: "ok",
+        exact: payload.exact !== false,
+        applied: payload.applied || "",
+        requested: payload.requested || "",
+      });
+    };
+    window.addEventListener("message", onHostDisplayResult);
+    return () => window.removeEventListener("message", onHostDisplayResult);
+  }, []);
+
+  /**
+   * #89 — ask the host to adopt this window's stream size as its real display
+   * mode. Deliberately not `handleResetResolution`: that one only retargets the
+   * scaler, so the 1920x1080 host desktop is squeezed into the window and the
+   * frame stays ~1.12x larger than the pixels it is drawn on. This one moves the
+   * desktop itself, which is what makes the stream 1:1.
+   */
+  const handleMatchHostDisplay = () => {
+    setHostDisplay({ phase: "working" });
+    window.postMessage({ type: "matchHostDisplay" }, window.location.origin);
+  };
+  const handleRestoreHostDisplay = () => {
+    setHostDisplay(null);
+    window.postMessage({ type: "restoreHostDisplay" }, window.location.origin);
   };
   const handleVideoToggle = () =>
     window.postMessage(
@@ -3883,6 +3934,49 @@ function Sidebar() {
                     </div>
                   </>
                 )}
+                {/* #89 — host display mode. Outside the manual-resolution
+                    branch on purpose: it works whether or not a preset is
+                    pinned, because it changes what the host *sends*, not what
+                    the scaler asks for. */}
+                <div className="host-display-block">
+                  <button
+                    className={`resolution-button toggle-button ${
+                      hostDisplay?.phase === "working" ? "active" : ""
+                    }`}
+                    onClick={handleMatchHostDisplay}
+                    disabled={hostDisplay?.phase === "working"}
+                    title={t("sections.screen.matchViewportTitle")}
+                  >
+                    {t("sections.screen.matchViewportButton")}
+                  </button>
+                  <button
+                    className="resolution-button reset-button"
+                    onClick={handleRestoreHostDisplay}
+                    title={t("sections.screen.restoreHostTitle")}
+                  >
+                    {t("sections.screen.restoreHostButton")}
+                  </button>
+                  {hostDisplay && (
+                    <p className="host-display-note" role="status">
+                      {hostDisplay.phase === "working"
+                        && t("sections.screen.matchViewportWorking")}
+                      {hostDisplay.phase === "error" && (
+                        <>
+                          {t("sections.screen.matchViewportFailed")}{" "}
+                          {hostDisplay.error}
+                        </>
+                      )}
+                      {hostDisplay.phase === "ok" && (
+                        <>
+                          {hostDisplay.exact
+                            ? t("sections.screen.matchViewportExact")
+                            : t("sections.screen.matchViewportInexact")}{" "}
+                          <strong>{hostDisplay.applied}</strong>
+                        </>
+                      )}
+                    </p>
+                  )}
+                </div>
                 <button
                   className={`resolution-button toggle-button ${
                     scaleLocally ? "active" : ""

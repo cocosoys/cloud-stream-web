@@ -1963,6 +1963,33 @@ export default function webrtc() {
 				handleResizeUI();
 				pushScalingDpi();
 				break;
+			// #89: ask the HOST to adopt the stream box size as its real display
+			// mode. `resetResolutionToWindow` only retargets the scaler — the
+			// 1920x1080 desktop is squeezed into a 1714x922 frame, which is what
+			// makes the locked pointer run ~11 % slow. This reflows the host
+			// desktop instead: capture becomes 1:1, the encoder stops scaling
+			// and the CSS:frame ratio the pointer path divides by becomes 1.
+			//
+			// The server answers with `display_resolution` carrying the mode it
+			// actually reached, because a driver may refuse an odd viewport size
+			// and fall back to the nearest reported mode.
+			case "matchHostDisplay": {
+				if (isSharedMode) { break; }
+				const cssSize = input && input.getStreamCssSize ? input.getStreamCssSize() : null;
+				if (!cssSize) {
+					console.warn("matchHostDisplay: the stream box is not measurable yet");
+					break;
+				}
+				console.log(`Asking the host display to adopt ${cssSize[0]}x${cssSize[1]}`);
+				webrtc.sendDataChannelMessage(`dr,${cssSize[0]}x${cssSize[1]}`);
+				break;
+			}
+			// #89: put the host back to the mode it had before the first switch.
+			case "restoreHostDisplay":
+				if (isSharedMode) { break; }
+				console.log("Restoring the host display mode");
+				webrtc.sendDataChannelMessage("dr,reset");
+				break;
 			case "setManualResolution": {
 				if (isSharedMode) { break; }
 				if (window.enable_resize === false && storageDisplayId !== 'display2') {
@@ -3760,6 +3787,15 @@ export default function webrtc() {
 			 * defaults would move the stream off both.
 			 */
 			webrtc.ondisplaysettings = (obj) => followDisplaySettings((obj && obj.settings) || {});
+			// #89: `dr,WxH` ack. Nothing to act on here — the dashboard owns the
+			// button and the status line, so the result is relayed to it.
+			webrtc.ondisplayresolution = (obj) => {
+				console.log("Host display mode result:", JSON.stringify(obj));
+				window.postMessage(
+					{ type: "hostDisplayResult", payload: obj },
+					window.location.origin
+				);
+			};
 			webrtc.onserversettings = (obj) => {
 				if (obj.settings === undefined || obj.settings === null) {
 					console.warn("Received invalid server settings paylod");
