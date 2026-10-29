@@ -4,7 +4,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { stopIndex } from "../../../selkies-web-core/lib/slider-stops.js";
 
 /**
@@ -76,6 +76,8 @@ export default function SliderField({
     // value that arrives from the slider, from the server, or from another
     // panel while the box is not focused must still show up in it.
     const [draft, setDraft] = useState(null);
+    /** Set by Escape, so the blur it causes does not commit what it cancelled. */
+    const abandoned = useRef(false);
 
     const low = stops ? Math.min(...stops) : min;
     const high = stops ? Math.max(...stops) : max;
@@ -121,15 +123,19 @@ export default function SliderField({
                         onFocus={() => setDraft(shown)}
                         onChange={(event) => setDraft(event.target.value)}
                         onBlur={(event) => {
-                            commit(event.target.value);
+                            // Escape abandons the edit, and blurring is how it
+                            // leaves the box — without this flag the blur would
+                            // commit the very text Escape just discarded.
+                            if (!abandoned.current) commit(event.target.value);
+                            abandoned.current = false;
                             setDraft(null);
                         }}
                         onKeyDown={(event) => {
                             if (event.key === "Enter") {
-                                commit(event.currentTarget.value);
-                                setDraft(null);
+                                // The blur commits, once.
                                 event.currentTarget.blur();
                             } else if (event.key === "Escape") {
+                                abandoned.current = true;
                                 setDraft(null);
                                 event.currentTarget.blur();
                             }
