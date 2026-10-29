@@ -3985,32 +3985,23 @@ export class Input {
     /**
      * Scale a CSS-pixel relative motion onto the wire.
      *
-     * A motion is expressed in the same unit as an absolute position: remote
-     * (frame) pixels. The absolute path divides a client coordinate by
-     * `_pointerScale()` — frame pixels per CSS pixel — so the cursor lands on
-     * the remote pixel under the page-drawn one. A relative motion needs the
-     * same factor for the same reason: the frame is drawn at `box / frame` CSS
-     * pixels per remote pixel, so a delta sent unchanged covers *less* ground
-     * on screen than the hand did whenever the stream is drawn smaller than its
-     * frame. On a 1714x922 viewport showing a 1920x1080 stream that is 0.893 —
-     * the pointer in gaming mode moves ~11% less than the hand, and slower
-     * still in a small window, while the absolute path (fullscreen without the
-     * lock) stays exact.
+     * Pointer-locked motion is the one place the stream box's scale does NOT
+     * belong. `_pointerScale` exists to make an absolute position land on the
+     * right remote pixel when the stream is drawn smaller or larger than its
+     * frame; a locked pointer has no remote pixel to land on, and a game reads
+     * the delta as camera rotation, so multiplying by the box ratio turns into
+     * a sensitivity that changes with the window size. It also amplified the
+     * deltas past the host's mouse-acceleration thresholds — the observed
+     * "nudge the mouse, the view whips around" (#74).
      *
-     * #74 removed a factor here to keep a game camera's sensitivity independent
-     * of the window size, and that reasoning holds — for a camera. It is the
-     * wrong default for a desktop: a pointer is judged by whether it follows
-     * the hand, and the same build swings between "slower than the hand" and
-     * "faster than the hand" as the window resizes. `pointerGain` stays on top,
-     * so 1 is "matches the picture" and a camera-minded user can dial the
-     * factor down until the raw delta is what goes out.
+     * What is left is `pointerGain`: 1 by default (the browser's delta reaches
+     * the server unchanged, matching `unadjustedMovement`), adjustable for
+     * players who want a different feel (`setPointerGain`). Absolute coordinates
+     * still go through `_pointerScale` — clicks must stay accurate.
      */
     _relativeToServer(cssX, cssY) {
         const gain = this.pointerGain;
-        const scale = this._pointerScale();
-        const sx = (scale && scale.x > 0) ? scale.x : 1;
-        const sy = (scale && scale.y > 0) ? scale.y : 1;
-        return this._quantizeRelative(cssX * sx * gain, cssY * sy * gain);
+        return this._quantizeRelative(cssX * gain, cssY * gain);
     }
 
     /**
