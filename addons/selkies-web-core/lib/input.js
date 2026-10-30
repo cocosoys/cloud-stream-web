@@ -1593,6 +1593,11 @@ export class Input {
         this.y = 0;
         this._relCarryX = 0;
         this._relCarryY = 0;
+        /** Where the ghost pointer is drawn, in CSS pixels inside the window (#96). */
+        this._ghostX = 0;
+        this._ghostY = 0;
+        /** Counts down to the ghost pointer's fade; null while it is not on screen. */
+        this._ghostTimer = null;
         this._pointerScaleFrame = null;
         this._pendingMove = null;
         this._moveFlushScheduled = false;
@@ -1776,6 +1781,70 @@ export class Input {
      */
     static _rawMotionRefused = false;
 
+    /**
+     * Whether a locked pointer is drawn by the page instead of the host (#96).
+     *
+     * The `ghost_cursor` setting, resolved by the core and pushed through
+     * `setGhostCursor`. On by default: the host's composited pointer travels
+     * the video path, so it is one frame plus one encode behind the hand and
+     * repaints a whole frame per pixel of movement. The page's own pointer is
+     * painted here, at 0 latency, and the frame is free to update at whatever
+     * rate it can afford.
+     *
+     * It only tracks the host while the host maps one count to one pixel, which
+     * is why turning it on also asks the host to drop its acceleration curve and
+     * its speed step (`ma,1`, `dispatch/hostui::pin_pointer`). Off restores the
+     * older arrangement: the host composites the pointer into the video and the
+     * page draws none.
+     */
+    static ghostCursor = true;
+
+    /**
+     * How long the ghost pointer stays on screen without an effective move, in
+     * milliseconds (#96). Faded rather than hidden: a game draws its own
+     * crosshair, so a pointer that never leaves sits on top of the action and
+     * claims a position the host may no longer be at.
+     *
+     * The deployment's `ghost_cursor.idle_secs` sets it (5 s by default); this
+     * copy only covers the moment before `server_settings` arrives.
+     */
+    static ghostCursorIdleMs = 5000;
+
+    /** Whether the ghost pointer is wanted right now: setting on, pointer locked. */
+    _usesGhostCursor() {
+        return Input.ghostCursor && this._isStreamLocked();
+    }
+
+    /**
+     * Applies the `ghost_cursor` setting. Taking effect under a held lock needs
+     * a re-report: the host was told not to composite, or to composite, when the
+     * lock was taken, and that instruction has to follow the setting rather than
+     * wait for the next lock.
+     */
+    setGhostCursor(value) {
+        const wanted = !!value;
+        if (Input.ghostCursor === wanted) return;
+        Input.ghostCursor = wanted;
+        if (!this._isStreamLocked()) return;
+        if (wanted) {
+            this.send("SET_NATIVE_CURSOR_RENDERING,0");
+            this.send("ma,1");
+            this._startGhostCursor();
+        } else {
+            this.send("SET_NATIVE_CURSOR_RENDERING,1");
+            this.send("ma,0");
+            this._stopGhostCursor();
+            this.cursorDiv.style.visibility = 'hidden';
+        }
+    }
+
+    /** Applies `ghost_cursor.idle_secs`; a value the page cannot use keeps the default. */
+    setGhostCursorIdle(ms) {
+        const value = Number(ms);
+        if (!Number.isFinite(value) || value <= 0) return;
+        Input.ghostCursorIdleMs = value;
+    }
+
     /** Set once the page has been told that nothing holds Escape in gaming mode. */
     static _keyboardLockNoticed = false;
 
@@ -1818,6 +1887,10 @@ export class Input {
         this.cursorHotspot.y = this._rawHotspotY / dpr;
         if (this._trackpadMode) {
             this._placeEchoCursor();
+        } else if (this._usesGhostCursor()) {
+            // #96: under a lock the client position is frozen, so the ghost's
+            // accumulated one is the only place this image belongs.
+            this._placeGhostCursor();
         } else {
             this._updateCursorPosition(this._latestMouseX, this._latestMouseY);
         }
@@ -1906,6 +1979,12 @@ export class Input {
         if (!cursorData.curdata ||
             parseInt(cursorData.handle, 10) === 0)
         {
+            // #96: while the page draws the pointer, a host that hides its own
+            // (a game taking raw input, a fullscreen video, a blank cursor set
+            // by the window under the pointer) must not take the drawn one with
+            // it: the ghost keeps the last shape it was given and fades on its
+            // own timer.
+            if (this._usesGhostCursor() && this._cursorBase64Data) return;
             this._cursorImageBitmap = null;
             this._cursorBase64Data = null;
             this.cursorDiv.style.display = 'none';
@@ -1926,7 +2005,7 @@ export class Input {
         if (this._trackpadMode) {
             this._cursorImageBitmap = await this._cursorBitmapFromBase64(this._cursorBase64Data);
             this._drawAndScaleCursor();
-        } else if (this.use_browser_cursors) {
+        } else if (this.use_browser_cursors && !this._usesGhostCursor()) {
             this.cursorDiv.style.display = 'none';
             this._updateBrowserCursor();
         } else {
@@ -2919,7 +2998,8 @@ export class Input {
                     visualClientY = lastPredictedEvent.clientY;
                 }
             }
-            if (this.inputAttached && !this.use_browser_cursors && !this._trackpadMode) {
+            if (this.inputAttached && !this.use_browser_cursors && !this._trackpadMode &&
+                !this._usesGhostCursor()) {
                 this._updateCursorPosition(visualClientX, visualClientY);
             }
             this._latestMouseX = visualClientX;
@@ -3019,6 +3099,7 @@ export class Input {
             if (mtype === "m2") {
                 const moved = this._relativeToServer(outX, outY);
                 this._sendPointer([ "m2", moved[0], moved[1], this.buttonMask, 0 ], false);
+                this._ghostMove(moved[0], moved[1]);
             } else {
                 this._sendPointer([ "m", outX, outY, this.buttonMask, 0 ], false);
             }
@@ -3083,6 +3164,9 @@ export class Input {
             const moved = this._relativeToServer(m.x, m.y);
             if (moved[0] === 0 && moved[1] === 0) return;
             this._sendPointer([ m.mtype, moved[0], moved[1], m.buttonMask, 0 ], true);
+            // #96: from the value actually sent, so the drawn pointer and the
+            // host's real one accumulate the same numbers.
+            this._ghostMove(moved[0], moved[1]);
         } else {
             this._sendPointer([ m.mtype, m.x, m.y, m.buttonMask, 0 ], true);
         }
@@ -5015,8 +5099,9 @@ export class Input {
 
     /**
      * Pointer lock change: reports it to the server (`p`,
-     * `SET_NATIVE_CURSOR_RENDERING`), resets the relative carry, and swaps the
-     * page-drawn cursor for the server-composited one: hidden while locked.
+     * `SET_NATIVE_CURSOR_RENDERING`), resets the relative carry, and decides
+     * who draws the pointer for as long as the lock lasts — the page (#96, a
+     * ghost cursor at 0 latency) or the host (composited into the video).
      */
     _pointerLock() {
         this._relCarryX = 0;
@@ -5031,15 +5116,148 @@ export class Input {
             // mode a player believes they are in is the mode they are in.
             console.info('[selkies] pointer lock engaged: relative motion (m2) on the pointer channel');
             this.send("p,1");
-            this.send("SET_NATIVE_CURSOR_RENDERING,1");
-            this.cursorDiv.style.visibility = 'hidden';
+            if (Input.ghostCursor) {
+                // #96: two handovers at once. The host stops compositing, so
+                // the frame carries no pointer of its own; and its pointer is
+                // pinned to 1:1 so the drawn one keeps up with it.
+                this.send("SET_NATIVE_CURSOR_RENDERING,0");
+                this.send("ma,1");
+                this._startGhostCursor();
+            } else {
+                this.send("SET_NATIVE_CURSOR_RENDERING,1");
+                this.send("ma,0");
+                this.cursorDiv.style.visibility = 'hidden';
+            }
         } else {
             console.info('[selkies] pointer lock released: absolute motion (m) on the control channel');
             this.send("p,0");
             this.send("SET_NATIVE_CURSOR_RENDERING,0");
+            // Unconditional: the host treats a release with nothing pinned as a
+            // no-op, so this needs no record of whether `ma,1` went out.
+            this.send("ma,0");
             this.resetKeyboard();
+            this._stopGhostCursor();
             this.cursorDiv.style.visibility = 'visible';
         }
+    }
+
+    /**
+     * Starts the ghost pointer (#96) at the position the hand left the real one.
+     *
+     * `_latestMouseX/Y` is the last unlocked position, since under lock the
+     * events report a frozen client position; it is therefore read before the
+     * first delta lands, which is exactly where the host's pointer was when the
+     * lock was taken.
+     */
+    _startGhostCursor() {
+        this._ghostX = this._latestMouseX;
+        this._ghostY = this._latestMouseY;
+        this.cursorDiv.style.transition = 'opacity 180ms linear';
+        this.cursorDiv.style.opacity = '1';
+        this.cursorDiv.style.visibility = 'visible';
+        // The canvas draws it whichever cursor style the page uses unlocked: a
+        // CSS cursor is painted at the engine's pointer, which is frozen while
+        // locked, so it cannot stand in for one that moves.
+        this.cursorDiv.style.display = 'block';
+        this.element.style.setProperty('cursor', 'none', 'important');
+        this._ensureCanvasCursor();
+        this._armGhostFade();
+    }
+
+    /** Takes the ghost pointer off screen and gives the unlocked rendering back. */
+    _stopGhostCursor() {
+        if (this._ghostTimer !== null) {
+            clearTimeout(this._ghostTimer);
+            this._ghostTimer = null;
+        }
+        this.cursorDiv.style.transition = '';
+        this.cursorDiv.style.opacity = '';
+        if (!this.use_browser_cursors) return;
+        // A page that asked for CSS cursors had its canvas hidden; the native
+        // one is what it wants back, and the pointer is about to be absolute
+        // again, so repaint the CSS cursor where the server last put it.
+        this.cursorDiv.style.display = 'none';
+        this._updateBrowserCursor();
+    }
+
+    /**
+     * Decodes the server's cursor image for the canvas when the page was using
+     * CSS cursors, whose bitmap `updateServerCursor` never built (#96).
+     */
+    async _ensureCanvasCursor() {
+        if (this._cursorImageBitmap) {
+            this._drawAndScaleCursor();
+            return;
+        }
+        const b64 = this._cursorBase64Data;
+        if (!b64) return;
+        try {
+            const bitmap = await this._cursorBitmapFromBase64(b64);
+            // A shape that arrived meanwhile owns the canvas now.
+            if (this._cursorBase64Data !== b64 || !this._usesGhostCursor()) return;
+            this._cursorImageBitmap = bitmap;
+            this._drawAndScaleCursor();
+        } catch (err) {
+            console.warn('[selkies] ghost cursor image failed:', err);
+        }
+    }
+
+    /**
+     * Moves the ghost pointer by a delta the host has already been sent (#96).
+     *
+     * The delta is the wire one, not the event's: coalescing, quantizing and
+     * rounding all happen on that value, so accumulating anything else makes
+     * the drawn pointer drift against the real one by the rounding error of
+     * every event. It is then scaled by the stream box, because a remote pixel
+     * covers `scale` CSS pixels on screen — the ghost mirrors what the host's
+     * pointer does *as displayed*.
+     * @param {number} serverX Host pixels, as sent.
+     * @param {number} serverY
+     */
+    _ghostMove(serverX, serverY) {
+        if (!this._usesGhostCursor()) return;
+        if (serverX !== 0 || serverY !== 0) {
+            const scale = this._pointerScale();
+            this._ghostX += serverX * scale.x;
+            this._ghostY += serverY * scale.y;
+            this.cursorDiv.style.opacity = '1';
+            this._armGhostFade();
+        }
+        this._placeGhostCursor();
+    }
+
+    /** Draws the ghost pointer at `_ghostX/_ghostY`, kept inside the stream's box. */
+    _placeGhostCursor() {
+        const box = this.element.getBoundingClientRect();
+        const left = box.left;
+        const top = box.top;
+        if (box.width > 0 && box.height > 0) {
+            // The host's pointer is confined to its screen; without this the
+            // drawn one walks off the window and never comes back, because the
+            // host keeps counting deltas past the edge while it cannot.
+            this._ghostX = Math.min(left + box.width, Math.max(left, this._ghostX));
+            this._ghostY = Math.min(top + box.height, Math.max(top, this._ghostY));
+        }
+        this.cursorDiv.style.transform =
+            `translate(${this._ghostX - this.cursorHotspot.x}px, ${this._ghostY - this.cursorHotspot.y}px)`;
+    }
+
+    /**
+     * Restarts the ghost pointer's fade timer (#96): the pointer leaves the
+     * screen after `ghostCursorIdleMs` without an effective move, and the next
+     * move brings it back.
+     */
+    _armGhostFade() {
+        if (this._ghostTimer !== null) {
+            clearTimeout(this._ghostTimer);
+            this._ghostTimer = null;
+        }
+        if (!this._usesGhostCursor()) return;
+        this._ghostTimer = setTimeout(() => {
+            this._ghostTimer = null;
+            if (!this._usesGhostCursor()) return;
+            this.cursorDiv.style.opacity = '0';
+        }, Input.ghostCursorIdleMs);
     }
 
     /** Derives the client-to-frame mapping of the element (letterbox offset and scale) into `this.m`, or null when it has no size. */
@@ -5602,6 +5820,11 @@ export class Input {
             document.exitPointerLock();
             this.send("p,0");
             this.send("SET_NATIVE_CURSOR_RENDERING,0");
+            // #96: `detach()` is a page going away, and a pinned host pointer
+            // outlives it. The server also releases on session teardown; this
+            // is the path that runs while the socket is still up.
+            this.send("ma,0");
+            this._stopGhostCursor();
             console.log("remote pointer visibility to: False");
         }
     }

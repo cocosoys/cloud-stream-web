@@ -70,7 +70,7 @@ import { resolveSpec, isSettingPinned, HIDPI_SPEC, RATE_CONTROL_SPEC,
   USE_BROWSER_CURSORS_SPEC, VIDEO_FULLCOLOR_SPEC, VIDEO_10BIT_SPEC, VIDEO_STREAMING_MODE_SPEC,
   USE_PAINT_OVER_QUALITY_SPEC, USE_CPU_SPEC, FORCE_ALIGNED_RESOLUTION_SPEC, softwareChoiceAvailable,
   tenBitStream,
-  RAW_POINTER_MOTION_SPEC, MAC_CMD_AS_CTRL_SPEC } from "../../../selkies-web-core/lib/conditional-settings.js";
+  RAW_POINTER_MOTION_SPEC, GHOST_CURSOR_SPEC, MAC_CMD_AS_CTRL_SPEC } from "../../../selkies-web-core/lib/conditional-settings.js";
 import GamepadVisualizer from "./GamepadVisualizer";
 import PlayerGamepadButton from "./PlayerGamepadButton.jsx";
 import StreamStats from "./StreamStats.jsx";
@@ -1084,6 +1084,7 @@ function Sidebar() {
     newRenderable.keyboardShortcuts = isRenderable('keyboard_shortcuts');
     newRenderable.use_browser_cursors = isRenderable('use_browser_cursors');
     newRenderable.rawPointerMotion = isRenderable('raw_pointer_motion');
+    newRenderable.ghostCursor = isRenderable('ghost_cursor');
     newRenderable.macCmdAsCtrl = isRenderable('mac_cmd_as_ctrl') && isMacDesktop();
     newRenderable.video_bitrate = isRenderable('video_bitrate');
     newRenderable.audio_bitrate = isRenderable('audio_bitrate');
@@ -1502,6 +1503,13 @@ function Sidebar() {
     USE_BROWSER_CURSORS_SPEC, serverSettings, conditionalCtx, [serverSettings]);
   const [rawPointerMotion, setRawPointerMotion] = useConditionalSetting(
     RAW_POINTER_MOTION_SPEC, serverSettings, conditionalCtx, [serverSettings]);
+  /**
+   * The game-mode ghost cursor (#96): whether the page draws the pointer under a
+   * lock instead of the host compositing one into the video. The core owns it
+   * and persists the pick.
+   */
+  const [ghostCursor, setGhostCursor] = useConditionalSetting(
+    GHOST_CURSOR_SPEC, serverSettings, conditionalCtx, [serverSettings]);
   const [macCmdAsCtrl, setMacCmdAsCtrl] = useConditionalSetting(
     MAC_CMD_AS_CTRL_SPEC, serverSettings, conditionalCtx, [serverSettings]);
   /**
@@ -2548,6 +2556,10 @@ function Sidebar() {
   /** Raw pointer motion toggle; the core owns persistence, as for browser cursors. */
   const handleRawPointerMotionToggle = () => {
     writeConditional(RAW_POINTER_MOTION_SPEC, !rawPointerMotion, setRawPointerMotion, { persist: false });
+  };
+  /** Ghost cursor toggle (#96); the core owns persistence, as above. */
+  const handleGhostCursorToggle = () => {
+    writeConditional(GHOST_CURSOR_SPEC, !ghostCursor, setGhostCursor, { persist: false });
   };
   /** Command-as-Control toggle; the core owns persistence, as above. */
   const handleMacCmdAsCtrlToggle = () => {
@@ -3986,14 +3998,34 @@ function Sidebar() {
                         </button>
                       </div>
                     )}
+                    {(renderableSettings.ghostCursor ?? true) && (
+                      <div className="dev-setting-item toggle-item">
+                        <label htmlFor="ghostCursorToggle">
+                          {t("sections.screen.ghostCursorLabel", "Game-mode pointer")}
+                        </label>
+                        <button
+                          id="ghostCursorToggle"
+                          className={`toggle-button-sidebar ${ghostCursor ? "active" : ""}`}
+                          onClick={handleGhostCursorToggle}
+                          aria-pressed={ghostCursor}
+                          title={t(ghostCursor ? "sections.screen.ghostCursorDisableTitle" : "sections.screen.ghostCursorEnableTitle",
+                                  ghostCursor ? "Let the host composite the pointer into the video again (one frame behind, and it repaints a frame per pixel of motion)"
+                                    : "Draw the pointer in the page under pointer lock: it follows the hand with no latency, and the host's pointer is pinned to 1:1 so the two stay together. The pointer fades after a few seconds without motion")}
+                        >
+                          <span className="toggle-button-sidebar-knob"></span>
+                        </button>
+                      </div>
+                    )}
                     <SliderField
                       id="pointerGainSlider"
                       label={t("sections.screen.pointerGainName", "指针灵敏度")}
-                      note={mouseDpi === DEFAULT_MOUSE_DPI
-                        ? t("sections.screen.pointerGainDefault", "默认")
-                        : (mouseDpiResult?.phase === "ok" && !mouseDpiResult.exact
-                          ? t("sections.screen.pointerDpiNearest", "已取最接近的档")
-                          : null)}
+                      note={ghostCursor
+                        ? t("sections.screen.pointerGainGhostCursor", "幽灵光标开启时固定 1:1")
+                        : (mouseDpi === DEFAULT_MOUSE_DPI
+                          ? t("sections.screen.pointerGainDefault", "默认")
+                          : (mouseDpiResult?.phase === "ok" && !mouseDpiResult.exact
+                            ? t("sections.screen.pointerDpiNearest", "已取最接近的档")
+                            : null))}
                       unit="DPI"
                       value={mouseDpi}
                       stops={mouseDpiStops}
@@ -4001,8 +4033,12 @@ function Sidebar() {
                       min={MIN_SHOWN_MOUSE_DPI}
                       max={mouseDpiStops[mouseDpiStops.length - 1]}
                       onChange={handleMouseDpiChange}
-                      title={t("sections.screen.pointerGainTitle",
-                        "写进被控机系统的指针速度（SPI_SETMOUSESPEED），不是浏览器自己乘的倍数：桌面、启动器和游戏读到的都是这一个灵敏度。Windows 只有 20 档速度，填写的数值会落到最接近的一档；400 DPI 是系统默认（速度档 10）。")}
+                      disabled={ghostCursor}
+                      title={ghostCursor
+                        ? t("sections.screen.pointerGainGhostCursorTitle",
+                          "游戏模式幽灵光标开启时，主机的指针档位被临时固定在 1:1（400 DPI），否则画面上的指针会以速度档的倍数跑在真实指针之外。关掉幽灵光标后这个滑块会重新可用。")
+                        : t("sections.screen.pointerGainTitle",
+                          "写进被控机系统的指针速度（SPI_SETMOUSESPEED），不是浏览器自己乘的倍数：桌面、启动器和游戏读到的都是这一个灵敏度。Windows 只有 20 档速度，填写的数值会落到最接近的一档；400 DPI 是系统默认（速度档 10）。")}
                     />
                     {mouseDpiResult && (
                       <p className="host-display-note" role="status">

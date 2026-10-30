@@ -93,7 +93,7 @@ import { installAuthGuard } from './lib/auth-guard.js';
 import { getSessionToken, installSessionCookie, sessionAuthHeaders } from './lib/session-token.js';
 import { urlFragmentKeyword } from './lib/page-url.js';
 import { titleFromSettings } from './lib/page-title.js';
-import { storageKeyForServerKey, resolveSpec, HIDPI_SPEC, RAW_POINTER_MOTION_SPEC, MAC_CMD_AS_CTRL_SPEC } from './lib/conditional-settings.js';
+import { storageKeyForServerKey, resolveSpec, HIDPI_SPEC, RAW_POINTER_MOTION_SPEC, GHOST_CURSOR_SPEC, MAC_CMD_AS_CTRL_SPEC } from './lib/conditional-settings.js';
 import { getRoutePrefix, getStorageAppName, canDecodeFullColor, canDecodeTenBit, tenBitFormat, canReceiveEncoder, isCaptureRefusal, isMacDesktop, displayLabel, entryPageTag, serverAnswers, rememberCcStart, forgetCcStart } from './lib/util.js';
 import { codecOfEncoder, codecCarriesFullColor, codecCarriesTenBit } from './lib/wire-codecs.js';
 import { WEBCAM_ENCODER_PREFERENCES } from './lib/webcam-capture.js';
@@ -492,6 +492,21 @@ export default function webrtc() {
 	 */
 	let rawPointerMotion = true;
 	/**
+	 * Whether a locked pointer is drawn by the page (#96) instead of the host
+	 * compositing one into the video. Seeded from localStorage over the default
+	 * (on), resolved through the shared ladder on every settings payload
+	 * (`resolvedGhostCursor`), then updated by a dashboard pick (persisted) or a
+	 * server-pushed value (not persisted, so a later change stays re-pushable).
+	 */
+	let ghostCursor = true;
+	/**
+	 * How long an unmoved ghost pointer stays on screen, in milliseconds. The
+	 * server owns the number (`ghost_cursor.idle_secs`, 5 s by default) and the
+	 * page runs the timer; the local copy covers the moment before the payload
+	 * arrives.
+	 */
+	let ghostCursorIdleMs = 5000;
+	/**
 	 * Whether a secondary display page is connected (server display-config
 	 * broadcast). Multi-monitor forces browser-cursor rendering: the
 	 * server-drawn cursor overlay tracks only one capture region.
@@ -751,6 +766,17 @@ export default function webrtc() {
 		}
 	}
 
+	/** Applies the ghost pointer setting and its fade time to the input handler (#96). */
+	function applyGhostCursor() {
+		if (!input) return;
+		if (typeof input.setGhostCursor === 'function') {
+			input.setGhostCursor(ghostCursor);
+		}
+		if (typeof input.setGhostCursorIdle === 'function') {
+			input.setGhostCursorIdle(ghostCursorIdleMs);
+		}
+	}
+
 	/** How far the trackpad moves the pointer: the dashboards' pick, persisted here. */
 	let trackpadSpeed = 1;
 	/** Applies the trackpad speed to the input handler. */
@@ -801,6 +827,19 @@ export default function webrtc() {
 	 */
 	function resolvedRawPointerMotion(serverSettings) {
 		return resolveSpec(RAW_POINTER_MOTION_SPEC, serverSettings, { macDesktop: isMacDesktop() },
+			(key) => getStringParam(key, null));
+	}
+
+	/**
+	 * The `ghost_cursor` the deployment implies, off the shared ladder. Resolved
+	 * here for the same reason raw pointer motion is: a lock is taken from the
+	 * stream, whether or not a settings panel ever mounts, and the pointer it
+	 * hands over has to be decided by then.
+	 * @param {Object<string, object>} serverSettings The `server_settings` payload.
+	 * @returns {boolean}
+	 */
+	function resolvedGhostCursor(serverSettings) {
+		return resolveSpec(GHOST_CURSOR_SPEC, serverSettings, {},
 			(key) => getStringParam(key, null));
 	}
 
@@ -2299,6 +2338,15 @@ export default function webrtc() {
 					console.warn("Invalid value received for setRawPointerMotion:", message.value);
 				}
 				break;
+			case 'setGhostCursor':
+				if (typeof message.value === 'boolean') {
+					ghostCursor = message.value;
+					setBoolParam('ghost_cursor', message.value);
+					applyGhostCursor();
+				} else {
+					console.warn("Invalid value received for setGhostCursor:", message.value);
+				}
+				break;
 			case 'setTrackpadSpeed':
 				if (typeof message.value === 'number' && Number.isFinite(message.value)) {
 					trackpadSpeed = message.value;
@@ -3160,6 +3208,7 @@ export default function webrtc() {
 			trackpadMode = getBoolParam('trackpadMode', false);
 			useBrowserCursors = getBoolParam('use_browser_cursors', true);
 			rawPointerMotion = getBoolParam('raw_pointer_motion', Input.rawPointerMotion);
+			ghostCursor = getBoolParam('ghost_cursor', Input.ghostCursor);
 			trackpadSpeed = getFloatParam('trackpad_speed', 1);
 			gamepadRumble = getBoolParam('gamepad_rumble', true);
 			force_aligned_resolution = getBoolParam('force_aligned_resolution', false);
@@ -3302,6 +3351,7 @@ export default function webrtc() {
 			if (trackpadMode) input.setTrackpadMode(true);
 			applyEffectiveCursorSetting();
 			applyRawPointerMotion();
+			applyGhostCursor();
 			applyMacCmdAsCtrl();
 			applyTrackpadSpeed();
 			applyGamepadRumble();
@@ -3893,6 +3943,20 @@ export default function webrtc() {
 				if (rawMotion !== rawPointerMotion) {
 					rawPointerMotion = rawMotion;
 					applyRawPointerMotion();
+				}
+				const ghost = resolvedGhostCursor(obj.settings);
+				const ghostEntry = obj.settings && obj.settings.ghost_cursor;
+				const ghostIdle = Number(ghostEntry && ghostEntry.idle_secs);
+				// #96: the fade time is the deployment's, announced here and
+				// applied whether or not the switch itself moved — a host that
+				// changes it on restart must not need the toggle touched.
+				if (Number.isFinite(ghostIdle) && ghostIdle > 0 && ghostIdle * 1000 !== ghostCursorIdleMs) {
+					ghostCursorIdleMs = ghostIdle * 1000;
+					applyGhostCursor();
+				}
+				if (ghost !== ghostCursor) {
+					ghostCursor = ghost;
+					applyGhostCursor();
 				}
 				const cmdAsCtrl = resolvedMacCmdAsCtrl(obj.settings);
 				if (cmdAsCtrl !== macCmdAsCtrl) {

@@ -253,10 +253,24 @@ export const RAW_POINTER_MOTION_SPEC = {
 export const MAC_CMD_AS_CTRL_SPEC = boolSpec("mac_cmd_as_ctrl", true,
     (value, _ctx, io) => io.postToCore({ type: "setMacCmdAsCtrl", value }));
 
+/**
+ * The game-mode ghost pointer (#96): whether the page draws the pointer under a
+ * lock instead of the host compositing one into the video. On by default — the
+ * server-side pointer travels a frame plus an encode behind the hand, and every
+ * pixel of its motion repaints a whole frame.
+ *
+ * The server's entry also carries `idle_secs`, the fade time. That is not part
+ * of this boolean: it is the deployment's number, applied by the core when the
+ * payload arrives, not something a panel chooses.
+ */
+export const GHOST_CURSOR_SPEC = boolSpec("ghost_cursor", true,
+    (value, _ctx, io) => io.postToCore({ type: "setGhostCursor", value }));
+
 const SETTING_SPECS = [
     HIDPI_SPEC, RATE_CONTROL_SPEC, USE_BROWSER_CURSORS_SPEC, VIDEO_FULLCOLOR_SPEC, VIDEO_10BIT_SPEC,
     VIDEO_STREAMING_MODE_SPEC, USE_PAINT_OVER_QUALITY_SPEC, USE_CPU_SPEC,
-    FORCE_ALIGNED_RESOLUTION_SPEC, RAW_POINTER_MOTION_SPEC, MAC_CMD_AS_CTRL_SPEC,
+    FORCE_ALIGNED_RESOLUTION_SPEC, RAW_POINTER_MOTION_SPEC, GHOST_CURSOR_SPEC,
+    MAC_CMD_AS_CTRL_SPEC,
 ];
 
 /**
