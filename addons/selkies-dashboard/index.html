@@ -23,6 +23,20 @@
          that prefer them and for the install prompt. -->
     <link rel="icon" type="image/x-icon" href="favicon.ico" />
     <link rel="icon" type="image/png" sizes="180x180" href="icon.png" />
+    <!-- The transport is a build-time fact here, not a runtime discovery: the
+         server implements WebRTC only and answers 404 on /api/websockets.
+         selkies-core resolves the mode as injected value -> last persisted
+         value -> WebSockets (selkies-core.js determineStreamingMode), so a
+         browser with a clean profile has nothing persisted and falls through to
+         WebSockets, then sits in "WebSocket disconnected" against an endpoint
+         that does not exist. Publishing the mode here removes that fallback
+         for every new device. It has to be an inline script ahead of the
+         bundle: main.jsx also probes /api/status for `current_mode`, but that
+         endpoint answers plain text `ok`, so the probe never sets anything.
+         __SELKIES_DUAL_MODE__ is deliberately left unset -- the server sends no
+         enable_dual_mode, which keeps the panel's mode toggle hidden, and
+         switching to WebSockets here could only break the session. -->
+    <script>window.__SELKIES_STREAMING_MODE__ = "webrtc";</script>
   </head>
   <body>
     <div id="app"></div>
