@@ -1550,6 +1550,8 @@ export class Input {
         this._cursorImageBitmap = null;
         this._rawHotspotX = 0;
         this._rawHotspotY = 0;
+        /** Whether the last cursor update said the host hides its own pointer (#96). */
+        this._hostCursorHidden = false;
         this.use_browser_cursors = false;
         this._latestMouseX = 0;
         this._latestMouseY = 0;
@@ -1983,8 +1985,12 @@ export class Input {
             // (a game taking raw input, a fullscreen video, a blank cursor set
             // by the window under the pointer) must not take the drawn one with
             // it: the ghost keeps the last shape it was given and fades on its
-            // own timer.
-            if (this._usesGhostCursor() && this._cursorBase64Data) return;
+            // own timer. The fact is remembered, so unlocking does not put a
+            // shape back over a desktop whose pointer is not there.
+            if (this._usesGhostCursor() && this._cursorBase64Data) {
+                this._hostCursorHidden = true;
+                return;
+            }
             this._cursorImageBitmap = null;
             this._cursorBase64Data = null;
             this.cursorDiv.style.display = 'none';
@@ -1995,6 +2001,7 @@ export class Input {
         }
         this._rawHotspotX = parseInt(cursorData.hotx) || 0;
         this._rawHotspotY = parseInt(cursorData.hoty) || 0;
+        this._hostCursorHidden = false;
         this._cursorBase64Data = cursorData.curdata;
         this._cursorImageBitmap = null;
         if (!this.inputAttached) {
@@ -5172,6 +5179,16 @@ export class Input {
         }
         this.cursorDiv.style.transition = '';
         this.cursorDiv.style.opacity = '';
+        if (this._hostCursorHidden) {
+            // #96: the host hid its pointer while the page was drawing one, and
+            // it has not come back yet. Restoring the shape we kept would put a
+            // pointer on screen that the desktop itself is not showing.
+            this.cursorDiv.style.display = 'none';
+            if (this.use_browser_cursors) {
+                this.element.style.setProperty('cursor', 'none', 'important');
+            }
+            return;
+        }
         if (!this.use_browser_cursors) return;
         // A page that asked for CSS cursors had its canvas hidden; the native
         // one is what it wants back, and the pointer is about to be absolute
