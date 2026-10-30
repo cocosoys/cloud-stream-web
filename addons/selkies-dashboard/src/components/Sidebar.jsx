@@ -3552,20 +3552,36 @@ function Sidebar() {
                     <label htmlFor="encoderSelect">
                       {t("sections.video.encoderLabel")}
                     </label>
-                    <select
-                      id="encoderSelect"
-                      value={encoder}
-                      onChange={handleEncoderChange}
-                      disabled={!serverSettings || dynamicEncoderOptions.length <= 1}
-                    >
-                      {dynamicEncoderOptions.map((enc) => (
-                        <option key={enc} value={enc} disabled={!canPlayEncoder(enc, isWebrtc)}>
-                          {canPlayEncoder(enc, isWebrtc)
-                            ? displayLabel(enc)
-                            : `${displayLabel(enc)} (${t("sections.video.encoderUnsupported")})`}
-                        </option>
-                      ))}
-                    </select>
+                    {/* A server with exactly one encoder has nothing to choose:
+                        drawing a disabled <select> there reads as "this control
+                        is broken", which is how it was reported. The row stays —
+                        "what is encoding this stream" is a fact worth showing —
+                        but as a value, not as a menu. */}
+                    {fixedEncoder ? (
+                      <span
+                        className="setting-fact"
+                        title={t("sections.video.encoderFixedTitle",
+                          "This server builds exactly one encoder. The row reports what is encoding the stream, not a choice — the statistics section reads the same fact from the running pipeline.")}
+                      >
+                        {displayLabel(encoder)}
+                        <small>{t("sections.video.encoderFixedNote", "server's only one")}</small>
+                      </span>
+                    ) : (
+                      <select
+                        id="encoderSelect"
+                        value={encoder}
+                        onChange={handleEncoderChange}
+                        disabled={!serverSettings || dynamicEncoderOptions.length <= 1}
+                      >
+                        {dynamicEncoderOptions.map((enc) => (
+                          <option key={enc} value={enc} disabled={!canPlayEncoder(enc, isWebrtc)}>
+                            {canPlayEncoder(enc, isWebrtc)
+                              ? displayLabel(enc)
+                              : `${displayLabel(enc)} (${t("sections.video.encoderUnsupported")})`}
+                          </option>
+                        ))}
+                      </select>
+                    )}
                   </div>
                 )}
                 {!isWebrtc && (renderableSettings.webcamEncoder ?? true) && (

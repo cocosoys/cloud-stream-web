@@ -507,6 +507,24 @@
     color: var(--text);
 }
 
+/* A setting the server has already decided: the row still answers "what is it
+   running", but there is no control here to look broken. A disabled <select>
+   with one option reads as a bug; a value reads as a fact. */
+.setting-fact {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+}
+.setting-fact small {
+    font-weight: 400;
+    font-size: 11px;
+    opacity: 0.6;
+}
+
 /* Tracking breaks the joins in Arabic and pulls Han and Hangul apart, and those
    glyphs carry enough strokes that 13px reads a size smaller than Latin does. */
 :is(.sidebar h3, .dev-setting-item label, .stream-row-label, .stream-graph-label, .stream-meter-label):is(
