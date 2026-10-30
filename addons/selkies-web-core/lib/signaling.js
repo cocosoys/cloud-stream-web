@@ -48,7 +48,7 @@
  * @module
  */
 
-import { pageTabId, recalledCcStart } from './util.js';
+import { pageTabId, deviceId, recalledCcStart } from './util.js';
 
 /** A secret naming the page's session to the server, which resumes it after a cut. */
 function newResumeKey() {
@@ -271,6 +271,9 @@ export class WebRTCSignaling {
             'display_id': this.display_id,
             'display_position': this.display_position,
             'client_tab_id': pageTabId(),
+            // The long-lived counterpart of the tab id: what the server's
+            // `/api/v1/health` lists as this connection's device code.
+            'client_device_id': deviceId(),
             'cc_start_kbps': recalledCcStart(this.display_id),
             'resume_key': this.resume_key,
         }

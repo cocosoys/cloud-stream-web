@@ -468,6 +468,15 @@ export function isMacDesktop() {
 }
 
 /**
+ * A fresh random id, with a fallback for engines that predate `randomUUID`.
+ * @returns {string}
+ */
+function randomId() {
+  return (window.crypto && window.crypto.randomUUID) ? window.crypto.randomUUID()
+    : `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`;
+}
+
+/**
  * This browser tab's id, kept in its sessionStorage: a reload of the page keeps
  * it and another tab has its own, which is how the server tells a page taking
  * its own display back from another page joining it.
@@ -478,13 +487,44 @@ export function pageTabId() {
   try {
     let id = window.sessionStorage.getItem(key);
     if (!id) {
-      id = (window.crypto && window.crypto.randomUUID) ? window.crypto.randomUUID()
-        : `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`;
+      id = randomId();
       window.sessionStorage.setItem(key, id);
     }
     return id;
   } catch (e) {
     return null;
+  }
+}
+
+/**
+ * This browser's long-lived id: the "device code" the server lists per
+ * connection (`/api/v1/health`), so an operator can tell "the same machine
+ * reconnected" from "someone new is watching". Unlike {@link pageTabId} it
+ * outlives the tab and the reload.
+ *
+ * `localStorage` and not `sessionStorage`, because a code that dies with the tab
+ * is just a slower tab id. It is scoped per origin **and** per app path through
+ * `getStorageAppName()`, like every other key this module writes, so a second
+ * deployment on the same origin does not inherit this one's identity.
+ *
+ * This is an identifier the browser keeps, not a hardware fingerprint: clearing
+ * site data replaces it, and it says nothing about the machine itself.
+ *
+ * @returns {string} The stored id; the tab id where storage is unavailable
+ *   (private mode with site data blocked), so the server still sees a stable
+ *   code for the life of the page instead of an empty field.
+ */
+export function deviceId() {
+  const key = `${getStorageAppName()}_device_id`;
+  try {
+    let id = window.localStorage.getItem(key);
+    if (!id) {
+      id = randomId();
+      window.localStorage.setItem(key, id);
+    }
+    return id;
+  } catch (e) {
+    return pageTabId() || '';
   }
 }
 
