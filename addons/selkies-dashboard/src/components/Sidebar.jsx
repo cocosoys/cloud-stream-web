@@ -1751,8 +1751,20 @@ function Sidebar() {
     if (s_encoder) {
       const playable = s_encoder.allowed.filter((enc) => canPlayEncoder(enc, isWebrtc));
       const stored = localStorage.getItem(getPrefixedKey("encoder"));
-      const final = playable.includes(stored) ? stored
-        : (playable.includes(s_encoder.value) || playable.length === 0) ? s_encoder.value : playable[0];
+      /**
+       * #94: the server's value now outranks the stored preference. It used to
+       * be the other way round because the server could only echo one encoder
+       * and nothing it said was news. Since the row is a real choice, `value` is
+       * the codec the stream is *actually* encoding with — and this server can
+       * refuse a pick (a browser whose answer rejects the codec, an encoder it
+       * does not build), so a stored pick that wins would label the stream with
+       * a codec it is not using. The echo always arrives after the server
+       * applied the pick, so this reports what happened rather than fighting
+       * the user.
+       */
+      const final = playable.includes(s_encoder.value) ? s_encoder.value
+        : playable.includes(stored) ? stored
+          : (playable.length === 0 ? s_encoder.value : playable[0]);
       setEncoder(final);
       setDynamicEncoderOptions(s_encoder.allowed);
     }
@@ -3126,10 +3138,10 @@ function Sidebar() {
     && !!tenBitOffered;
   const showJpegOptions = encoder === 'jpeg';
   /**
-   * The server compiles in one encoder, so `locked` would normally hide the row
-   * (`isRenderable`). Still worth showing: the row's whole point is to answer
-   * "what is encoding this stream", and the answer used to be the panel's own
-   * local default. One option, disabled — a fact, not a choice.
+   * #94: a server that builds exactly one encoder (`allowed.length === 1`) has
+   * nothing to choose, so the row degrades to a fact. This build ships two
+   * (VP8 / VP9), so the branch below is the "some other server" path — kept
+   * because `allowed` is the server's to decide, not this panel's.
    */
   const fixedEncoder = (serverSettings?.encoder?.allowed?.length ?? 0) === 1;
   /**
