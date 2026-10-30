@@ -17,7 +17,12 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <link rel="apple-touch-icon" href="icon-512.png">
     <link rel="manifest" href="manifest.json" crossorigin="use-credentials">
-    <link rel="icon" type="image/png" href="icon.png" />
+    <!-- The .ico first: it is the file browsers ask for unconditionally and the
+         one a desktop shortcut copies, and it carries its own 16/32/48 sizes so
+         the tab icon stays sharp at every size. The PNGs stay for the browsers
+         that prefer them and for the install prompt. -->
+    <link rel="icon" type="image/x-icon" href="favicon.ico" />
+    <link rel="icon" type="image/png" sizes="180x180" href="icon.png" />
   </head>
   <body>
     <div id="app"></div>
