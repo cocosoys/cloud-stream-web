@@ -4019,13 +4019,6 @@ function Sidebar() {
                     <SliderField
                       id="pointerGainSlider"
                       label={t("sections.screen.pointerGainName", "指针灵敏度")}
-                      note={ghostCursor
-                        ? t("sections.screen.pointerGainGhostCursor", "幽灵光标开启时固定 1:1")
-                        : (mouseDpi === DEFAULT_MOUSE_DPI
-                          ? t("sections.screen.pointerGainDefault", "默认")
-                          : (mouseDpiResult?.phase === "ok" && !mouseDpiResult.exact
-                            ? t("sections.screen.pointerDpiNearest", "已取最接近的档")
-                            : null))}
                       unit="DPI"
                       value={mouseDpi}
                       stops={mouseDpiStops}
