@@ -8,7 +8,7 @@
     "serve": "vite",
     "prebuild": "node copy-core.js",
     "build": "vite build",
-    "postbuild": "node copy-assets.js",
+    "postbuild": "node copy-assets.js && node write-manifest.js",
     "lint": "eslint .",
     "preview": "vite preview"
   },

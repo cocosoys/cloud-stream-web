@@ -1,2 +1,5 @@
 node_modules
 selkies-version.txt
+# Offline fallback for the gamepad DB (gendb.js). Regenerated from upstream on
+# any build with network; never committed.
+.cache/
