@@ -426,6 +426,16 @@ let currentSink = '';
 let preferredInputDeviceId = null;
 let preferredOutputDeviceId = null;
 let metricsIntervalId = null;
+/**
+ * #116: 上一拍跑完的时刻，给"帧还在到就别等定时器"的兜底用（见
+ * `__rawWsMessage` 的视频分支）。定时器会被浏览器降频，也会被
+ * `onSocketError` / `onSocketClose` 清掉，而到达路径不会被。
+ */
+let metricsTickAt = 0;
+/** #116: 上一次为"收到分块却报 0 fps"打日志的时刻，避免刷屏。 */
+let lastZeroFpsWarnAt = 0;
+/** #116: 上一拍看到的 `videoChunksReceived`，用来判断这一拍到底有没有帧到。 */
+let chunksAtLastTick = 0;
 let backpressureIntervalId = null;
 /**
  * The session socket's reconnect ladder (`scheduleReconnect`): the pending
@@ -1337,8 +1347,19 @@ function sampleStreamStats() {
 /**
  * The sample's `fps` is the frames the screen was handed a second, where a
  * sink says so: every canvas does, and a `<video>` once it has reported a
- * frame through requestVideoFrameCallback; until then the rate `window.fps`
- * measures stands in.
+ * frame through requestVideoFrameCallback; where it does not, the rate
+ * `window.fps` measures stands in.
+ *
+ * "Where it does not" is not only the warm-up: the presented count hangs off
+ * **one point in time and one sink** — `videoWatch` is bound when the stats
+ * open, the worker counts only if it was told the stats are open, a canvas
+ * counts at its draw. A sink that swapped under a bound watch, a worker
+ * respawned after the opening, an element that did not exist yet: each leaves
+ * the counter at zero for the rest of the session while the picture runs at
+ * its full rate. Reporting that zero would be a lie, and the panel's client
+ * FPS would sit at 0 next to a healthy server FPS, pointing every reader at a
+ * stream that is fine. The wire rate is the one figure that is still true
+ * there, so it stands in.
  * @param {?{bytes: number, decodeMs: number, frames: number,
  *     shown: import('./lib/present-meter.js').PresentFigures}} worker The video
  *     worker's figures since the last sample, or null where there is no worker.
@@ -1356,11 +1377,17 @@ function takeStreamSample(worker) {
   shownSampledAt = now;
   const shown = [pageShown.take(), worker && worker.shown].filter(Boolean);
   const sum = (key) => shown.reduce((total, figures) => total + figures[key], 0);
+  // The watch is bound once, when the stats open; the element it should follow
+  // appears later on a page that opened them before its sink existed, so bind
+  // it here too rather than letting one moment decide the whole session.
+  if (!videoWatch && videoElement) videoWatch = watchVideo(videoElement, pageShown, videoDelay);
   const video = videoWatch ? videoWatch.read() : { shown: 0, dropped: 0 };
   notShown += sum('superseded') + sum('refused') + video.dropped;
-  const unobserved = !!videoWatch && !videoWatch.reported() && (mstgActive || videoWorkerMode === 'vtg');
+  const presented = sum('presented') + video.shown;
   const figures = {
-    fps: unobserved || !(seconds > 0) ? window.fps : Math.round((sum('presented') + video.shown) / seconds * 10) / 10,
+    fps: !(seconds > 0) || presented === 0
+      ? window.fps
+      : Math.round(presented / seconds * 10) / 10,
     lost_frames: requests.lost - requests.lostAtOpen,
     frames_not_shown: notShown,
     keyframe_requests: requests.keyframes - requests.keyframesAtOpen,
@@ -1692,9 +1719,18 @@ function sanitizeAndStoreSettings(serverSettings) {
     else if (typeof setting.value === 'boolean') {
       const serverValue = setting.value;
       if (setting.locked) {
-        const clientValue = getBoolParam(storeKey, !serverValue);
+        // The server has pinned this key, so the server's value IS the default.
+        // This used to be `!serverValue`, which made the client compare the
+        // server's word against its own opposite and report a change on every
+        // single echo — a locked key can never converge when its stored value
+        // is the negation of the locked one. Nothing here is written back to the
+        // user's keys (a locked value must not outlive the lock), so the stale
+        // entry is removed instead: after this pass the key is unset and the
+        // default below is the server's, which always agrees with `serverValue`.
+        const clientValue = getBoolParam(storeKey, serverValue);
         if (clientValue !== serverValue) {
           console.log(`Sanitizing '${key}': setting is locked by server. Client value ${clientValue} is being overwritten with ${serverValue}.`);
+          window.localStorage.removeItem(finalKey);
           changes[key] = serverValue;
         }
         window[key] = serverValue;
@@ -6183,8 +6219,13 @@ function handleSettingsMessage(settings, fromServer, send = true) {
     storeBool('force_aligned_resolution', force_aligned_resolution);
     settingsChanged = true;
   }
-  if (settingsChanged && send) {
-    sendFullSettingsUpdateToServer('handleSettingsMessage', fromServer ? null : Object.keys(settings));
+  // A server-authored payload is applied, never answered. Sending a full batch
+  // back on every echo is what makes the WebSocket transport loop (see
+  // `sanitizeAndStoreSettings` at the server_settings handler): the answer is
+  // itself answered. `fromServer` payloads describe what the server already did,
+  // so there is nothing here it does not know.
+  if (settingsChanged && send && !fromServer) {
+    sendFullSettingsUpdateToServer('handleSettingsMessage', Object.keys(settings));
   }
 }
 
@@ -7791,6 +7832,42 @@ class WorkerWebSocket {
   };
 
   /**
+   * #116: 帧号到达的时刻，只为回答"最近一秒收到了几个不同的帧号"。
+   *
+   * `window.fps` 原先拿两次定时器回调之间的间隔当分母。定时器不是等距的：
+   * 标签页切到后台、被另一个窗口挡住、系统进省电模式，浏览器都会把它降频
+   * （`visibilityState` 仍然可能是 `'visible'`，页面自己察觉不到）。分母一旦
+   * 变成 30-60 秒，正常的 60 帧/秒就被除成 1，某几拍不足 1 就取整成 0 ——
+   * 面板上就是"客户端 FPS 在 0 和 1 之间浮动"，而「服务器 FPS」照旧 60，
+   * 画面也一直是好的。
+   *
+   * 现场实测支持这一条：`/api/v1/health` 里这条会话的 `frames_total` 每秒
+   * +60、每帧约 1.2 KB（1080p VP9 静态桌面的重复帧就该这么大），
+   * `toolchain/ws-fps-probe.py` 直连也数到每秒 60 个不同帧号。也就是说帧一直
+   * 在到，唯一被偷走的是分母。
+   *
+   * 改成按到达时刻算之后，分母永远是"最近一秒"，定时器慢只让它更新得慢，
+   * 不会让它算错。
+   */
+  const wireArrivals = [];
+  const noteWireArrival = (id) => {
+    const now = performance.now();
+    wireArrivals.push({ id, at: now });
+    const cutoff = now - 2000;
+    while (wireArrivals.length && wireArrivals[0].at < cutoff) wireArrivals.shift();
+  };
+  /** 最近 `spanMs` 毫秒内到达的不同帧号数。 */
+  const wireArrivalRate = (spanMs) => {
+    const cutoff = performance.now() - spanMs;
+    const seen = new Set();
+    for (let i = wireArrivals.length - 1; i >= 0; i--) {
+      if (wireArrivals[i].at < cutoff) break;
+      seen.add(wireArrivals[i].id);
+    }
+    return seen.size;
+  };
+
+  /**
    * Metrics tick: refreshes the audio buffer depth the backpressure gates
    * read and publishes `window.fps` — composites presented per second in the
    * striped modes, and the wire's frame ids per second for full-frame h264enc,
@@ -7808,15 +7885,24 @@ class WorkerWebSocket {
     if (isSharedMode) return;
 
     const now = performance.now();
+    metricsTickAt = now;
     const elapsedStriped = now - lastStripedFpsUpdateTime;
     const elapsedFullFrame = now - lastFpsUpdateTime;
     const fpsUpdateInterval = 1000;
 
-    const wireFrameIds = uniqueStripedFrameIdsThisPeriod.size + divertedWireFramesThisPeriod;
+    // #116: 页面路径按到达时刻算（见 `noteWireArrival`）；worker 分流那条路
+    // 拿不到逐帧时间戳，仍旧用它自己每秒报一次的计数。两项各自配自己的分母：
+    // 到达率只看最近一段，分流计数覆盖整个 tick 间隔。定时器被降频到一分钟
+    // 一次时，前者仍然是"最近两秒多少帧"，不会把 60 除成 1。
+    const spanMs = Math.min(Math.max(elapsedStriped, fpsUpdateInterval), 2000);
+    const arrivalFps = (wireArrivalRate(spanMs) * 1000) / spanMs;
+    const divertedFps = (divertedWireFramesThisPeriod * 1000) / Math.max(elapsedStriped, 1);
+    const wireFrameIds = Math.max(arrivalFps, divertedFps);
+    const arrivedThisTick = window.videoChunksReceived - chunksAtLastTick;
+    chunksAtLastTick = window.videoChunksReceived;
     if (wireFrameIds > 0) {
       if (elapsedStriped >= fpsUpdateInterval) {
-        const stripedFps = (wireFrameIds * 1000) / elapsedStriped;
-        window.fps = Math.round(stripedFps);
+        window.fps = Math.round(wireFrameIds);
         uniqueStripedFrameIdsThisPeriod.clear();
         divertedWireFramesThisPeriod = 0;
         lastStripedFpsUpdateTime = now;
@@ -7833,6 +7919,16 @@ class WorkerWebSocket {
       }
     } else {
       if (elapsedStriped >= fpsUpdateInterval || elapsedFullFrame >= fpsUpdateInterval) {
+        // #116: 报 0 本身可能是真的（这一秒屏幕确实没拿到新画面）。但这一拍里
+        // 明明收到了视频分块，那就不是"没发"，而是"到了却没记账" —— 只有三种
+        // 成因：本页被判成共享观众（整段计数被跳过）、模式被判成条纹（改数合成）、
+        // 报文头不够长。三者事后从面板上一个都看不出来，所以在这里留一行。
+        if (arrivedThisTick > 0 && now - lastZeroFpsWarnAt > 5000) {
+          lastZeroFpsWarnAt = now;
+          console.warn(`[fps] reported 0 but ${arrivedThisTick} video chunks arrived since the last `
+            + `tick (shared=${isSharedMode} mode=${currentEncoderMode} divert=${videoDivertOn} `
+            + `ids=${uniqueStripedFrameIdsThisPeriod.size})`);
+        }
         window.fps = 0;
         lastFpsUpdateTime = now;
         lastStripedFpsUpdateTime = now;
@@ -8079,6 +8175,13 @@ class WorkerWebSocket {
         if (startVideoWatchdogTimer !== null) {
           clearStartVideoWatchdog();
         }
+        // #116: "多久没报过数"这件事不该由一个可能已经不在了的定时器来决定 ——
+        // `onSocketError` 和 `onSocketClose` 都会 `clearInterval`，而后台标签页
+        // 会被浏览器把间隔拉到几十秒。帧还在到就说明这条连接是活的，那么台账
+        // 就跟着帧走。
+        if (performance.now() - metricsTickAt > 2 * METRICS_INTERVAL_MS) {
+          sendClientMetrics();
+        }
       }
       if (isSharedMode && (dataTypeByte === 0x03 || dataTypeByte === 0x04)) {
         lastSharedVideoChunkTime = performance.now();
@@ -8170,6 +8273,9 @@ class WorkerWebSocket {
             // rate is measured off the wire; the striped modes count what they composite.
             if (currentEncoderMode !== 'h264enc-striped') {
                 uniqueStripedFrameIdsThisPeriod.add(lastReceivedVideoFrameId);
+                // 同时记下到达时刻：`window.fps` 的分母从此取自这里，而不是
+                // 两次定时器回调的间隔（见 `noteWireArrival`）。
+                noteWireArrival(lastReceivedVideoFrameId);
             }
         }
         const vncStripeYStart = dataView.getUint16(4, false);
@@ -8750,8 +8856,19 @@ class WorkerWebSocket {
               titleFromSettings(obj.settings);
               window.postMessage({ type: 'serverSettings', payload: obj.settings }, window.location.origin);
               if (Object.keys(changes).length > 0) {
-                  console.log('Client settings were sanitized by server rules. Sending updates back to server:', changes);
-                  handleSettingsMessage(changes, true);
+                  // Sanitizing produces exactly the values the server just asked
+                  // for, so sending them back teaches the server nothing — it is
+                  // the echo of its own word. On the WebSocket transport that
+                  // echo is a feedback loop: every batch of SETTINGS is answered
+                  // with a server_settings frame, and a client that answers the
+                  // answer back sends a batch that gets answered again. The loop
+                  // was measured at 400–550 batches/second (4 GB/h of server log,
+                  // half the downlink spent on JSON, main thread starved so the
+                  // first frame never got rendered). Apply them locally with
+                  // `send = false`: the runtime still picks up the correction, the
+                  // server does not get told what it already said.
+                  console.log('Client settings were sanitized by server rules. Applying locally:', changes);
+                  handleSettingsMessage(changes, true, false);
               }
               if (obj.settings.encoder_backends) encoderBackends = obj.settings.encoder_backends.value || null;
               if (typeof window['encoder'] === 'string') settleServerEncoder(window['encoder'], obj.settings.encoder);
