@@ -1764,7 +1764,11 @@ video_paintover_burst_frames = getIntParam('video_paintover_burst_frames', video
 use_paint_over_quality = getBoolParam('use_paint_over_quality', use_paint_over_quality);
 audio_bitrate = getIntParam('audio_bitrate', audio_bitrate);
 debug = getBoolParam('debug', debug);
-currentEncoderMode = getStringParam('encoder', 'h264enc');
+// #117: 服务端默认编码器是 VP9（`--video-codec vp9`），所以这里在
+// `server_settings` 到达之前也按 VP9 记账。留着 `h264enc` 的话，这段窗口里
+// 的整帧/条纹判定、真彩色与 10 位推导（`serverTenBit`）、统计面板上的编码器
+// 名字，全都按一个这台服务端根本编不出来的编码器算。
+currentEncoderMode = getStringParam('encoder', 'vp9enc');
 webcamEncoderPreference = getStringParam('webcam_encoder', 'auto');
 scaleLocallyManual = getBoolParam('scaleLocallyManual', true);
 window.manual_resolution = getBoolParam('manual_resolution', false);
@@ -3795,7 +3799,7 @@ function getCurrentSettingsPayload() {
             || window.localStorage.getItem(`${storedKey(key)}_explicit_choice`) === 'true');
     const storedEntries = [
         ['video_crf', () => getIntParam('video_crf', 25)],
-        ['encoder', () => getStringParam('encoder', 'h264enc')],
+        ['encoder', () => getStringParam('encoder', 'vp9enc')],
         ['manual_resolution', () => getBoolParam('manual_resolution', false)],
         ['audio_bitrate', () => getIntParam('audio_bitrate', 320000)],
         ['video_fullcolor', () => getBoolParam('video_fullcolor', false)],

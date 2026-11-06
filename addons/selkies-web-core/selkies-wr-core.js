@@ -3193,7 +3193,9 @@ export default function webrtc() {
 			isGamepadEnabled = getBoolParam('isGamepadEnabled', true);
 			manualWidth = getIntParam('manual_width', null);
 			manualHeight = getIntParam('manual_height', null);
-			encoder = getStringParam('encoder', 'h264enc');
+			// #117: 与服务端的默认编码器一致（`--video-codec vp9`）。这条只负责
+			// `server_settings` 到达前的本地记账，实际编码器仍以服务端回显为准。
+			encoder = getStringParam('encoder', 'vp9enc');
 			rateControlMode = getStringParam('rate_control_mode', 'cbr');
 			useCssScaling = getBoolParam('useCssScaling', false);
 			scalingDPI = (getStringParam('scaling_dpi', null) !== null) ? getIntParam('scaling_dpi', 96) : autoDeriveDpi();

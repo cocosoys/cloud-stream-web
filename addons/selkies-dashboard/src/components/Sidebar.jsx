@@ -209,7 +209,17 @@ const DEFAULT_PAINT_OVER_JPEG_QUALITY = 90;
 const DEFAULT_USE_CPU = false;
 const DEFAULT_H264_PAINTOVER_CRF = 18;
 const DEFAULT_USE_PAINT_OVER_QUALITY = true;
-const DEFAULT_ENCODER = encoderOptions[0];
+/**
+ * #117: what the encoder row shows before the server has said anything.
+ *
+ * The list above is the menu order, not a preference order: H.264 was first
+ * because upstream selkies can encode it, and this build cannot. That made the
+ * first entry a codec this server has no encoder for, so a panel that had to
+ * fall back to "the first option" landed on it. VP9 is what the server now
+ * starts on (`--video-codec`), so naming it here keeps the row honest during
+ * the few hundred milliseconds before `server_settings` arrives.
+ */
+const DEFAULT_ENCODER = "vp9enc";
 const DEFAULT_VIDEO_CRF = 25;
 const DEFAULT_SCALE_LOCALLY = true;
 const DEFAULT_ENABLE_BINARY_CLIPBOARD = true;
@@ -229,6 +239,13 @@ const TOUCH_GAMEPAD_HOST_DIV_ID = "touch-gamepad-host";
 const STREAM_MODE_WEBRTC = "webrtc";
 const STREAM_MODE_WEBSOCKETS = "websockets";
 const STREAMING_MODES= [STREAM_MODE_WEBSOCKETS, STREAM_MODE_WEBRTC]
+/**
+ * #117: WebSockets is the default transport. The server advertises the same
+ * answer on `/api/status` (`--mode`), and `main.jsx` seeds localStorage from
+ * it only for a browser that has never chosen — this constant is the fallback
+ * for the moment that probe fails or has not returned yet, and it has to agree
+ * with the server or the switch renders as if it had done nothing.
+ */
 const DEFAULT_STREAM_MODE = STREAM_MODE_WEBSOCKETS;
 /** Audio bitrate default in bps, matching the server and the wish dashboard. */
 const DEFAULT_AUDIO_BITRATE = 128000;
