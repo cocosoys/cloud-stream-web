@@ -3518,20 +3518,52 @@ export class Input {
      * attributes may be unset) and `object-fit: contain` letterboxes the
      * frame inside the element box, so the mapping uses the fitted content
      * box; a canvas reports its buffer.
+     * measures even in automatic resolution, where the window math used to be
+     * the answer. Kept for call sites and no longer gates anything: a sink with
+     * a decoded size is always measured now (#118).
      * @param {HTMLCanvasElement|null} canvas
      * @param {HTMLVideoElement|null} videoEle
-     * @param {boolean} measureCursor Measure even automatic resolution; wait for decoded video dimensions.
+     * @param {boolean} measureCursor Unused since #118; every sink with a size is measured.
      * @returns {{boxLeft: number, boxTop: number, boxW: number, boxH: number, sinkW: number, sinkH: number}|null}
      */
     _sinkBox(canvas, videoEle, measureCursor = false) {
-        const sink = ((measureCursor || window.manual_resolution || this.isSharedMode || window.streamResolutionDiverged) && canvas)
-            ? canvas
-            : ((measureCursor || window.manualResolution || window.streamResolutionDiverged) && videoEle) ? videoEle : null;
-        if (!sink || (measureCursor && sink.tagName === 'VIDEO' &&
-            !(sink.videoWidth > 0 && sink.videoHeight > 0))) {
+        // #118: the surface that is actually displaying the frame decides the
+        // mapping, not a mode flag. `manual_resolution` / `manualResolution` /
+        // `isSharedMode` / `streamResolutionDiverged` used to gate this, so any
+        // path that forgot to set its flag fell back to the window math in
+        // `_windowMath()` — "overlay size times dpr equals server pixels". That
+        // identity only holds while the overlay really is stream/dpr in size,
+        // so a missed flag became a pointer that lands short by the ratio of the
+        // two (the "指针整体错开一截" that kept coming back). A surface with a
+        // buffer and a rect is ground truth by definition: it *is* the pixels on
+        // screen. Do not reintroduce a mode test here.
+        //
+        // A visible `<video>` wins over an invisible canvas (the webrtc core
+        // renders there); the ws core hides the canvas while frames go to the
+        // `<video>`/worker sink but keeps its buffer as the authority for size,
+        // which is why the mirror lookup below borrows a rect and not a size.
+        const canvasOk = !!(canvas && canvas.width > 0 && canvas.height > 0);
+        const videoOk = !!(videoEle && videoEle.videoWidth > 0 && videoEle.videoHeight > 0);
+        // One layout read per candidate, reused below: this runs per pointer event.
+        const canvasRect = canvasOk ? canvas.getBoundingClientRect() : null;
+        const videoRect = videoOk ? videoEle.getBoundingClientRect() : null;
+        const shown = (own) => !!own && own.width > 0 && own.height > 0;
+        let sink = null;
+        let ownRect = null;
+        if (videoOk && shown(videoRect) && !(canvasOk && shown(canvasRect))) {
+            sink = videoEle;
+            ownRect = videoRect;
+        } else if (canvasOk) {
+            sink = canvas;
+            ownRect = canvasRect;
+        } else if (videoOk) {
+            sink = videoEle;
+            ownRect = videoRect;
+        }
+        if (!sink) {
             return null;
         }
-        let rect = sink.getBoundingClientRect();
+        let rect = ownRect;
         if (!(rect.width > 0 && rect.height > 0)) {
             if (!this._sinkMirrors) {
                 this._sinkMirrors = {};
@@ -3620,8 +3652,10 @@ export class Input {
         const box = this._sinkBox(document.getElementById('videoCanvas'),
                                   document.getElementById('stream'));
         if (box) {
-            return { left: box.boxLeft, top: box.boxTop, width: box.boxW, height: box.boxH,
-                     scaleX: box.sinkW / box.boxW, scaleY: box.sinkH / box.boxH };
+            const sink = { left: box.boxLeft, top: box.boxTop, width: box.boxW, height: box.boxH,
+                           scaleX: box.sinkW / box.boxW, scaleY: box.sinkH / box.boxH };
+            this._reportMappingSkew(sink);
+            return sink;
         }
         if (!this.m) {
             this._windowMath();
@@ -3634,6 +3668,52 @@ export class Input {
                  top: this.m.elementClientY + this.m.mouseOffsetY,
                  width: this.m.frameW / this.m.mouseMultiX, height: this.m.frameH / this.m.mouseMultiY,
                  scaleX: this.m.mouseMultiX * dpr, scaleY: this.m.mouseMultiY * dpr };
+    }
+
+    /**
+     * Says out loud when the window math and the measured sink disagree (#118).
+     *
+     * The two mappings are the same distance only while the overlay happens to
+     * be stream/dpr in size — the assumption that broke every time this bug
+     * came back, because nothing in the page enforces it and no test caught it:
+     * the pointer simply landed short, silently. Now that the sink wins, a
+     * mismatch is not an error to fix here but a signal that something upstream
+     * (canvas style, overlay sizing, density) drifted, so it is logged once with
+     * both boxes and the resulting corner error.
+     *
+     * Sampled rather than exact: `_windowMath` reads layout, and this runs per
+     * pointer event.
+     * @param {{left: number, top: number, width: number, height: number, scaleX: number, scaleY: number}} sink
+     */
+    _reportMappingSkew(sink) {
+        if (this._mappingSkewReported) return;
+        if (this._mappingSkewCount === undefined) this._mappingSkewCount = 0;
+        if ((this._mappingSkewCount++ % 120) !== 0) return;
+        if (!this.m) this._windowMath();
+        if (!this.m) return;
+        const dpr = this._inputDpr();
+        const winScaleX = this.m.mouseMultiX * dpr;
+        const winScaleY = this.m.mouseMultiY * dpr;
+        const winLeft = this.m.elementClientX + this.m.mouseOffsetX;
+        const winTop = this.m.elementClientY + this.m.mouseOffsetY;
+        if (!(winScaleX > 0 && winScaleY > 0)) return;
+        // Bottom-right corner of the frame, in client CSS pixels, under each.
+        const cornerSinkX = sink.left + sink.width;
+        const cornerWinX = winLeft + (sink.width * sink.scaleX) / winScaleX;
+        const cornerSinkY = sink.top + sink.height;
+        const cornerWinY = winTop + (sink.height * sink.scaleY) / winScaleY;
+        const dx = Math.abs(cornerSinkX - cornerWinX);
+        const dy = Math.abs(cornerSinkY - cornerWinY);
+        if (dx <= 2 && dy <= 2) return;
+        this._mappingSkewReported = true;
+        console.warn('[selkies] pointer mapping skew: the window math no longer matches the ' +
+            'stream surface, so absolute clicks used to land off by ' +
+            `${dx.toFixed(1)}x${dy.toFixed(1)} CSS px at the bottom-right corner. ` +
+            `sink=${sink.left.toFixed(1)},${sink.top.toFixed(1)} ${sink.width.toFixed(1)}x${sink.height.toFixed(1)} ` +
+            `scale=${sink.scaleX.toFixed(3)},${sink.scaleY.toFixed(3)} ` +
+            `window=${winLeft.toFixed(1)},${winTop.toFixed(1)} scale=${winScaleX.toFixed(3)},${winScaleY.toFixed(3)} ` +
+            `overlay=${this.m.frameW}x${this.m.frameH} dpr=${dpr}. ` +
+            'The measured surface is in use; find what sized the overlay/canvas (see docs/input-coordinates.md).');
     }
 
     /**
@@ -5225,9 +5305,16 @@ export class Input {
      * The delta is the wire one, not the event's: coalescing, quantizing and
      * rounding all happen on that value, so accumulating anything else makes
      * the drawn pointer drift against the real one by the rounding error of
-     * every event. It is then scaled by the stream box, because a remote pixel
-     * covers `scale` CSS pixels on screen — the ghost mirrors what the host's
-     * pointer does *as displayed*.
+     * every event.
+     *
+     * #118: the wire delta is in **host pixels** and the ghost accumulates
+     * **CSS pixels**, so the box ratio divides, it does not multiply. One host
+     * pixel covers `1 / scale` CSS pixels, and `_pointerScale()` reports the
+     * inverse (host per CSS, `box.sinkW / box.boxW`). Multiplying sent the
+     * ghost off at `scale²` times the real speed: invisible at 1:1, and a full
+     * screen of drift the moment the page drew the stream at any other size —
+     * the same coordinate error the reverted `fix(input): 游戏模式指针比手慢
+     * 11%` got backwards from the other side. Keep the divide.
      * @param {number} serverX Host pixels, as sent.
      * @param {number} serverY
      */
@@ -5235,8 +5322,8 @@ export class Input {
         if (!this._usesGhostCursor()) return;
         if (serverX !== 0 || serverY !== 0) {
             const scale = this._pointerScale();
-            this._ghostX += serverX * scale.x;
-            this._ghostY += serverY * scale.y;
+            this._ghostX += scale.x > 0 ? serverX / scale.x : serverX;
+            this._ghostY += scale.y > 0 ? serverY / scale.y : serverY;
             this.cursorDiv.style.opacity = '1';
             this._armGhostFade();
         }
@@ -5277,7 +5364,17 @@ export class Input {
         }, Input.ghostCursorIdleMs);
     }
 
-    /** Derives the client-to-frame mapping of the element (letterbox offset and scale) into `this.m`, or null when it has no size. */
+    /**
+     * Derives the client-to-frame mapping of the element (letterbox offset and scale) into `this.m`, or null when it has no size.
+     *
+     * #118: a **fallback**, not the default. It is right only while the overlay
+     * is exactly `stream / dpr` in size, which nothing enforces — that is the
+     * assumption the recurring pointer offset was made of. `_streamBox()` asks
+     * the stream surface first and only lands here when no surface reports a
+     * size. Do not call it as a substitute for measuring, and do not "fix" a
+     * pointer position by adjusting the numbers below: find what mis-sized the
+     * canvas or the overlay instead.
+     */
     _windowMath() {
         this._pointerScaleFrame = null;
         const elementRect = this.element.getBoundingClientRect();
