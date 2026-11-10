@@ -126,7 +126,7 @@ import {
 import { detectKeyboardLayout } from './lib/keyboard-layout.js';
 import { installAuthGuard } from './lib/auth-guard.js';
 import { getSessionToken, installSessionCookie, sessionAuthHeaders, sessionTokenProtocols } from './lib/session-token.js';
-import { urlFragmentKeyword } from './lib/page-url.js';
+import { displayFromKeyword, urlFragmentKeyword } from './lib/page-url.js';
 import { titleFromSettings } from './lib/page-title.js';
 import { storageKeyForServerKey, resolveSpec, tenBitStream, HIDPI_SPEC, RAW_POINTER_MOTION_SPEC, MAC_CMD_AS_CTRL_SPEC } from './lib/conditional-settings.js';
 import { CRASH_SAFE_SETTINGS, holdKeys, holdDisplaySettings, releaseHeldSettings, restoreHeldPicks } from './lib/held-settings.js';
@@ -384,6 +384,21 @@ let webcamEncoderPreference = 'auto';
 let preferredWebcamDeviceId = null;
 let displayId = 'primary';
 let displayPosition = 'right';
+/**
+ * Whether this page is a secondary-display page (`#display2` … `#display8`).
+ *
+ * Upstream only ever had a second display, so every "is this the secondary
+ * page" test was written as `isSecondaryDisplay()`. The server has
+ * numbered displays since `DisplayKey::from_hello` (`display2` -> index 1,
+ * `displayN` -> index N-1), so the page reads any `#displayN` now and the
+ * tests ask this instead of naming one display. A function, not a const:
+ * `displayId` is assigned once the hash has been parsed, which happens after
+ * the helpers are defined.
+ * @returns {boolean} True on every display page but the primary one.
+ */
+function isSecondaryDisplay() {
+    return displayId !== 'primary';
+}
 /**
  * Stored settings sent to the server only beside the explicit-choice marker a
  * dashboard writes when the user picks them. The core stores every value it
@@ -702,7 +717,7 @@ let use_browser_cursors = true;
  */
 function applyEffectiveCursorSetting() {
     const userPreference = use_browser_cursors;
-    const isMultiMonitorActive = (displayId === 'display2' || (displayId === 'primary' && isSecondaryDisplayConnected));
+    const isMultiMonitorActive = (isSecondaryDisplay() || (displayId === 'primary' && isSecondaryDisplayConnected));
     const finalSetting = isMultiMonitorActive ? true : userPreference;
     if (window.webrtcInput && typeof window.webrtcInput.setUseBrowserCursors === 'function') {
         console.log(`Applying effective cursor setting. Multi-monitor: ${isMultiMonitorActive}, User Pref: ${userPreference}, Final: ${finalSetting}`);
@@ -868,22 +883,27 @@ const urlParams = new URLSearchParams(window.location.search);
 const authToken = getSessionToken();
 
 /**
- * The page hash's keyword selects the role: `#display2[-position]` is the
- * secondary display in every auth mode (a token-authenticated page that
- * connected as `primary` would supersede the page already holding it), and
- * without a token `#shared` and `#player2` to `#player4` are the shared-viewer
- * roles. A session token riding the hash beside it is not part of the keyword.
+ * The page hash's keyword selects the role: `#displayN[-position]` is display N
+ * (2 to 8) in every auth mode (a token-authenticated page that connected as
+ * `primary` would supersede the page already holding it), and without a token
+ * `#shared` and `#player2` to `#player4` are the shared-viewer roles. A session
+ * token riding the hash beside it is not part of the keyword.
  */
 const hash = urlFragmentKeyword();
-if (hash.startsWith('#display2')) {
-    displayId = 'display2';
-    const parts = hash.split('-');
-    if (parts.length > 1) {
-        const position = parts[1];
-        if (['left', 'right', 'up', 'down'].includes(position)) {
-            displayPosition = position;
-        }
-    }
+/**
+ * `#displayN[-position]` selects display N, N from 2 to {@link MAX_DISPLAY}.
+ *
+ * The number is the same off-by-one the server uses: `display2` is the second
+ * monitor (DXGI output 1). `display1` is refused rather than wrapped — it
+ * would mean the primary, which every other fragment already selects.
+ */
+const MAX_DISPLAY = 8;
+const displaySelection = displayFromKeyword(hash, MAX_DISPLAY);
+if (displaySelection) {
+    displayId = displaySelection.displayId;
+    if (displaySelection.position) displayPosition = displaySelection.position;
+} else if (/^#display\d/.test(hash)) {
+    console.warn(`Ignoring ${hash}: this page serves primary and display2..display${MAX_DISPLAY}.`);
 }
 
 if (authToken) {
@@ -922,8 +942,8 @@ let serverCommandEnabled = true;
 if (isSharedMode) {
   console.log(`Client is running in ${detectedSharedModeType} mode.`);
 }
-if (displayId === 'display2') {
-    console.log("Client is running in Secondary Display mode.");
+if (isSecondaryDisplay()) {
+    console.log(`Client is running in secondary display mode (${displayId}).`);
 }
 window.onload = () => {
   'use strict';
@@ -1435,7 +1455,7 @@ let rateControlMode = 'cbr';
 const getIntParam = (key, default_value) => {
   const prefixedKey = `${storageAppName}_${key}`;
   let finalKey = prefixedKey;
-  if (displayId === 'display2' && PER_DISPLAY_SETTINGS.includes(key)) {
+  if (isSecondaryDisplay() && PER_DISPLAY_SETTINGS.includes(key)) {
     finalKey = `${prefixedKey}_${displayId}`;
   }
   const value = window.localStorage.getItem(finalKey);
@@ -1445,7 +1465,7 @@ const getIntParam = (key, default_value) => {
 const getFloatParam = (key, default_value) => {
   const prefixedKey = `${storageAppName}_${key}`;
   let finalKey = prefixedKey;
-  if (displayId === 'display2' && PER_DISPLAY_SETTINGS.includes(key)) {
+  if (isSecondaryDisplay() && PER_DISPLAY_SETTINGS.includes(key)) {
     finalKey = `${prefixedKey}_${displayId}`;
   }
   const value = window.localStorage.getItem(finalKey);
@@ -1456,7 +1476,7 @@ const getFloatParam = (key, default_value) => {
 const setIntParam = (key, value) => {
   const prefixedKey = `${storageAppName}_${key}`;
   let finalKey = prefixedKey;
-  if (displayId === 'display2' && PER_DISPLAY_SETTINGS.includes(key)) {
+  if (isSecondaryDisplay() && PER_DISPLAY_SETTINGS.includes(key)) {
     finalKey = `${prefixedKey}_${displayId}`;
   }
   if (value === null || value === undefined) {
@@ -1468,14 +1488,14 @@ const setIntParam = (key, value) => {
 /** The localStorage key a setting is stored under, display suffix included. */
 const prefixedStorageKey = (key) => {
   const prefixedKey = `${storageAppName}_${key}`;
-  return (displayId === 'display2' && PER_DISPLAY_SETTINGS.includes(key))
+  return (isSecondaryDisplay() && PER_DISPLAY_SETTINGS.includes(key))
     ? `${prefixedKey}_${displayId}` : prefixedKey;
 };
 /** Reads a boolean setting stored as `'true'`/`'false'`. */
 const getBoolParam = (key, default_value) => {
   const prefixedKey = `${storageAppName}_${key}`;
   let finalKey = prefixedKey;
-  if (displayId === 'display2' && PER_DISPLAY_SETTINGS.includes(key)) {
+  if (isSecondaryDisplay() && PER_DISPLAY_SETTINGS.includes(key)) {
     finalKey = `${prefixedKey}_${displayId}`;
   }
   const v = window.localStorage.getItem(finalKey);
@@ -1488,7 +1508,7 @@ const getBoolParam = (key, default_value) => {
 const setBoolParam = (key, value) => {
   const prefixedKey = `${storageAppName}_${key}`;
   let finalKey = prefixedKey;
-  if (displayId === 'display2' && PER_DISPLAY_SETTINGS.includes(key)) {
+  if (isSecondaryDisplay() && PER_DISPLAY_SETTINGS.includes(key)) {
     finalKey = `${prefixedKey}_${displayId}`;
   }
   if (value === null || value === undefined) {
@@ -1501,7 +1521,7 @@ const setBoolParam = (key, value) => {
 const getStringParam = (key, default_value) => {
   const prefixedKey = `${storageAppName}_${key}`;
   let finalKey = prefixedKey;
-  if (displayId === 'display2' && PER_DISPLAY_SETTINGS.includes(key)) {
+  if (isSecondaryDisplay() && PER_DISPLAY_SETTINGS.includes(key)) {
     finalKey = `${prefixedKey}_${displayId}`;
   }
   const value = window.localStorage.getItem(finalKey);
@@ -1511,7 +1531,7 @@ const getStringParam = (key, default_value) => {
 const setStringParam = (key, value) => {
   const prefixedKey = `${storageAppName}_${key}`;
   let finalKey = prefixedKey;
-  if (displayId === 'display2' && PER_DISPLAY_SETTINGS.includes(key)) {
+  if (isSecondaryDisplay() && PER_DISPLAY_SETTINGS.includes(key)) {
     finalKey = `${prefixedKey}_${displayId}`;
   }
   if (value === null || value === undefined) {
@@ -1673,7 +1693,7 @@ function sanitizeAndStoreSettings(serverSettings) {
 
   const storageKeyFor = (key) => {
     const prefixedKey = `${storageAppName}_${key}`;
-    return (displayId === 'display2' && PER_DISPLAY_SETTINGS.includes(key))
+    return (isSecondaryDisplay() && PER_DISPLAY_SETTINGS.includes(key))
       ? `${prefixedKey}_${displayId}` : prefixedKey;
   };
 
@@ -3789,7 +3809,7 @@ function getCurrentSettingsPayload() {
     reportedStreamDensity = dpr;
     const storedKey = (key) => {
         let finalKey = `${storageAppName}_${key}`;
-        if (displayId === 'display2' && PER_DISPLAY_SETTINGS.includes(key)) {
+        if (isSecondaryDisplay() && PER_DISPLAY_SETTINGS.includes(key)) {
             finalKey = `${finalKey}_${displayId}`;
         }
         return finalKey;
@@ -3850,7 +3870,7 @@ function getCurrentSettingsPayload() {
     const ccStart = recalledCcStart(displayId);
     if (ccStart !== null) settingsToSend['ccStartKbps'] = ccStart;
     settingsToSend['displayScale'] = currentDisplayScale(dpr);
-    if (displayId === 'display2') {
+    if (isSecondaryDisplay()) {
         settingsToSend['displayPosition'] = displayPosition;
     }
     settingsToSend['audioRedundancy'] = true;
@@ -5070,7 +5090,7 @@ const initializeInput = () => {
       console.log("handleResizeUI: Auto-resize skipped, manual resolution mode is active.");
       return;
     }
-    if (window.enable_resize === false && displayId !== 'display2') {
+    if (window.enable_resize === false && !isSecondaryDisplay()) {
       console.log("handleResizeUI: Auto-resize skipped, dynamic resizing is disabled.");
       return;
     }
@@ -5479,7 +5499,7 @@ function receiveMessage(event) {
             sendResolutionToServer(manual_width, manual_height);
             applyManualCanvasStyle(manual_width, manual_height, scaleLocallyManual);
           } else if (!isSharedMode) {
-            if (window.enable_resize !== false || displayId === 'display2') {
+            if (window.enable_resize !== false || isSecondaryDisplay()) {
               const currentWindowRes = window.webrtcInput ? window.webrtcInput.getWindowResolution() : [window.innerWidth, window.innerHeight];
               const autoWidth = alignResolution(currentWindowRes[0]);
               const autoHeight = alignResolution(currentWindowRes[1]);
@@ -5564,7 +5584,7 @@ function receiveMessage(event) {
         console.log("Shared mode: setManualResolution message ignored.");
         break;
       }
-      if (window.enable_resize === false && displayId !== 'display2') {
+      if (window.enable_resize === false && !isSecondaryDisplay()) {
         console.log("setManualResolution ignored: the server keeps this display's size (enable_resize=false).");
         break;
       }
@@ -5612,7 +5632,7 @@ function receiveMessage(event) {
       setIntParam('manual_width', null);
       setIntParam('manual_height', null);
       setBoolParam('manual_resolution', false);
-      if (window.enable_resize !== false || displayId === 'display2') {
+      if (window.enable_resize !== false || isSecondaryDisplay()) {
         const currentWindowRes = window.webrtcInput ? window.webrtcInput.getWindowResolution() : [window.innerWidth, window.innerHeight];
         const autoWidth = alignResolution(currentWindowRes[0]);
         const autoHeight = alignResolution(currentWindowRes[1]);
@@ -8053,7 +8073,7 @@ class WorkerWebSocket {
       if (ccStart !== null) settingsToSend['ccStartKbps'] = ccStart;
       settingsToSend['displayScale'] = currentDisplayScale(dpr);
       reportedStreamDensity = dpr;
-      if (displayId === 'display2') {
+      if (isSecondaryDisplay()) {
           settingsToSend['displayPosition'] = displayPosition;
       }
       settingsToSend['audioRedundancy'] = true;
@@ -8918,7 +8938,7 @@ class WorkerWebSocket {
             }
           } else if (obj.type === 'print_document') {
             // A second display page is the same browser as the primary one.
-            if (!urlFragmentKeyword().startsWith('#display2')) printJobs.announce(obj.name, obj.size_bytes);
+            if (displayId === 'primary') printJobs.announce(obj.name, obj.size_bytes);
           } else if (obj.type === 'pipeline_status') {
             let statusChanged = false;
             if (obj.video !== undefined && obj.video !== isVideoPipelineActive) {
@@ -9145,7 +9165,12 @@ class WorkerWebSocket {
                 }
                 followStreamDensity();
                 if (displayId === 'primary') {
-                    const secondaryConnected = payload.displays.includes('display2');
+                    // Any display page but this one counts: the server lists the
+                    // displays it has pipelines for, and with eight monitors
+                    // "is someone else watching another screen" is not a
+                    // question about display2 alone.
+                    const secondaryConnected = (payload.displays || [])
+                        .some((id) => id && id !== 'primary');
                     if (isSecondaryDisplayConnected !== secondaryConnected) {
                         console.log(`Secondary display connection status changed to: ${secondaryConnected}`);
                         isSecondaryDisplayConnected = secondaryConnected;

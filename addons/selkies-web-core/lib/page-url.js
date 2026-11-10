@@ -55,7 +55,32 @@ export function urlFragmentKeyword() {
 }
 
 /**
- * The fragment for another page of this session, such as the second display's
+ * The display a fragment keyword selects.
+ *
+ * `#displayN` is display N, 2 to `max`: the number the server's
+ * `DisplayKey::from_hello` uses, where `display2` is the second output
+ * (DXGI index 1). `#display1` is refused rather than wrapped to the primary —
+ * every other fragment already means the primary, and silently serving it
+ * would hide a typo behind a picture that looks perfectly fine.
+ *
+ * A `-position` suffix (`#display3-left`) is the second display's layout hint,
+ * which is meaningless without a second page; it is returned anyway so the
+ * caller can pass it on unchanged.
+ * @param {string} keyword A keyword from {@link urlFragmentKeyword}, with `#`.
+ * @param {number} [max=8] Highest display number this page serves.
+ * @returns {{displayId: string, position: (string|null)}|null} The selection,
+ *     or `null` when the keyword is not a display keyword in range.
+ */
+export function displayFromKeyword(keyword, max = 8) {
+    const match = /^#display(\d+)(?:-(left|right|up|down))?$/.exec(String(keyword || ''));
+    if (!match) return null;
+    const index = Number(match[1]);
+    if (!Number.isInteger(index) || index < 2 || index > max) return null;
+    return { displayId: `display${index}`, position: match[2] || null };
+}
+
+/**
+ * The fragment for another page of this session, such as a secondary display's
  * window: the keyword, then the page's token when it came in the fragment. A
  * query token stays in the query, which the caller keeps.
  * @param {string} keyword The keyword without its `#` (`display2-right`).
