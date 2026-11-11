@@ -13,8 +13,17 @@ import path from 'node:path';
 // the object GitHub's API names for that commit: the git blob hash (SHA-1, the
 // only hash the upstream's history carries), read over a separate request from
 // the bytes it covers.
+//
+// That means "same source, same build" does NOT hold for the mapping tree: two
+// builds a day apart ship different jsdb with nothing in our repo to explain
+// the difference. A release build therefore pins the revision the way it pins
+// everything else it ships — `SDL_GAMEDB_COMMIT=<40 hex>` skips the branch
+// lookup and fetches exactly that tree. Unset keeps the tracking behaviour, so
+// a dev build still picks up upstream fixes; every successful run records what
+// it used in `dist/jsdb/.upstream.json`, and that is the value to pin next time.
 const DB_REPO = 'mdqinc/SDL_GameControllerDB';
 const DB_BRANCH = 'master';
+const DB_PIN = (process.env.SDL_GAMEDB_COMMIT || '').trim();
 const DB_FILE = 'gamecontrollerdb.txt';
 const API = 'https://api.github.com';
 const OUTPUT_DIR = 'dist/jsdb';
@@ -96,11 +105,43 @@ function parseSdlLine(line) {
 }
 
 async function fetchOk(url, headers = {}) {
-  const response = await fetch(url, { headers });
+  // 30 s covers a slow mirror; without a signal a stalled connection hangs the
+  // build forever, and `npm run build` gives no clue which request is stuck.
+  const response = await fetch(url, { headers, signal: AbortSignal.timeout(30_000) });
   if (!response.ok) {
     throw new Error(`Failed to fetch ${url}: ${response.status} ${response.statusText}`);
   }
   return response;
+}
+
+// Where the file's bytes may come from, canonical first. `raw.githubusercontent`
+// is the normal source, but it is unreachable from some networks (measured:
+// connect timeout while `api.github.com` answered in under a second) — and a
+// build that cannot reach it drops to the offline cache, silently shipping an
+// older revision than the one it just resolved. The blob hash is checked no
+// matter which transport delivered the bytes, so a mirror can only fail that
+// check, never substitute different content.
+function bodyUrls(commit) {
+  const path = `${DB_REPO}/${commit}/${DB_FILE}`;
+  return [
+    `https://raw.githubusercontent.com/${path}`,
+    `https://gcore.jsdelivr.net/gh/${DB_REPO}@${commit}/${DB_FILE}`,
+    `https://ghfast.top/https://raw.githubusercontent.com/${path}`
+  ];
+}
+
+async function fetchBody(commit) {
+  const failures = [];
+  for (const url of bodyUrls(commit)) {
+    try {
+      console.log(`Fetching controller DB from ${url}...`);
+      const body = Buffer.from(await (await fetchOk(url)).arrayBuffer());
+      return { body, url };
+    } catch (error) {
+      failures.push(`${url} -> ${error.message}`);
+    }
+  }
+  throw new Error(`every source for ${DB_FILE} failed:\n  ${failures.join('\n  ')}`);
 }
 
 // git's object hash of a file: SHA-1 over "blob <size>\0" and the content.
@@ -110,11 +151,13 @@ function gitBlobSha(body) {
 
 // How many mapping files a tree holds. Used only to decide whether a tree is
 // usable — an empty directory and a missing one are both "no mappings".
+// Dotfiles are metadata (`.upstream.json`), not mappings: counting them would
+// let a directory that holds nothing but that file pass as usable.
 function countMappings(dir) {
   if (!fs.existsSync(dir)) return 0;
   return fs
     .readdirSync(dir, { recursive: true, withFileTypes: true })
-    .filter((entry) => entry.isFile())
+    .filter((entry) => entry.isFile() && !entry.name.startsWith('.'))
     .length;
 }
 
@@ -131,6 +174,22 @@ function githubToken() {
   return process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
 }
 
+// The git blob hash GitHub records for `DB_FILE` at `commit`.
+//
+// `/contents/<path>?ref=` also carries it, but that endpoint answers with the
+// whole file base64-encoded — ~800 KB of JSON to read one field, and on a thin
+// link it times out long before the bytes we actually want arrive (measured:
+// 25 s, timeout). The commit's root tree lists the same blob shas in a couple of
+// KB, so that is what we read.
+async function blobShaAt(commit, headers) {
+  const tree = await (await fetchOk(`${API}/repos/${DB_REPO}/git/trees/${commit}`, headers)).json();
+  const entry = (tree.tree || []).find((node) => node.path === DB_FILE && node.type === 'blob');
+  if (!entry || !/^[0-9a-f]{40}$/.test(String(entry.sha))) {
+    throw new Error(`${DB_FILE} is not a blob in the tree of ${commit}`);
+  }
+  return entry.sha;
+}
+
 async function main() {
   const token = githubToken();
   const headers = { Accept: 'application/vnd.github+json', ...(token ? { Authorization: `Bearer ${token}` } : {}) };
@@ -138,13 +197,21 @@ async function main() {
   let fileContent;
   let commit;
   let body;
+  let bodySource;
   let blob;
   try {
-    commit = (await (await fetchOk(`${API}/repos/${DB_REPO}/commits/${DB_BRANCH}`, headers)).json()).sha;
-    blob = (await (await fetchOk(`${API}/repos/${DB_REPO}/contents/${DB_FILE}?ref=${commit}`, headers)).json()).sha;
-    const url = `https://raw.githubusercontent.com/${DB_REPO}/${commit}/${DB_FILE}`;
-    console.log(`Fetching controller DB from ${url}...`);
-    body = Buffer.from(await (await fetchOk(url)).arrayBuffer());
+    // Pinned revision: one request fewer, and the tree is the same every time.
+    if (DB_PIN) {
+      if (!/^[0-9a-f]{40}$/.test(DB_PIN)) {
+        throw new Error(`SDL_GAMEDB_COMMIT must be a full 40-character commit sha, got "${DB_PIN}"`);
+      }
+      commit = DB_PIN;
+      console.log(`Using pinned controller DB revision ${commit}.`);
+    } else {
+      commit = (await (await fetchOk(`${API}/repos/${DB_REPO}/commits/${DB_BRANCH}`, headers)).json()).sha;
+    }
+    blob = (await blobShaAt(commit, headers));
+    ({ body, url: bodySource } = await fetchBody(commit));
   } catch (error) {
     console.error('Error fetching game controller DB:', error);
     // A build that quietly writes an empty jsdb still reports success, and the
@@ -229,6 +296,30 @@ async function main() {
   console.log(`  Successfully converted and wrote ${convertedCount} mapping files.`);
   console.log(`  Removed ${staleCount} file(s) left by an older revision.`);
   console.log(`  Skipped ${skippedCount} lines (comments, empty, invalid, or an unsupported platform).`);
+
+  // What this tree came from. Written after the leftover sweep above (which
+  // unlinks anything this revision did not write), and kept out of the mapping
+  // directories so it ships with the bundle: without it, "which SDL revision is
+  // this bundle carrying" can only be answered by rebuilding, and a rebuild
+  // answers with today's upstream rather than the one that produced it.
+  fs.writeFileSync(
+    path.join(OUTPUT_DIR, '.upstream.json'),
+    JSON.stringify(
+      {
+        repo: DB_REPO,
+        file: DB_FILE,
+        commit,
+        blob,
+        pinned: Boolean(DB_PIN),
+        source: bodySource,
+        fetched_at: new Date().toISOString(),
+        mappings: convertedCount
+      },
+      null,
+      2
+    )
+  );
+
 
   // Seed the offline cache the first time a good build happens. Deliberately
   // write-once: refreshing it would mean deleting 1992 files, and a build that
