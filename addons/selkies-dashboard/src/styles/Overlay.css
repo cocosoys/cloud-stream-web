@@ -2384,3 +2384,129 @@ a:active {
     color: var(--text-muted, var(--text));
 }
 
+
+/* --- Game hosting panel ------------------------------------------------ */
+/* The dot carries the state before the label does: at a glance the panel
+   should answer "is it up" without reading. Colour is one of the few
+   non-text signals a 280 px sidebar can afford. */
+.game-status-line {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    color: var(--text);
+}
+
+.game-status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background-color: var(--text-muted);
+    flex: 0 0 auto;
+}
+
+.game-status-dot.is-running {
+    background-color: #4ade80;
+}
+
+.game-status-dot.is-stopped {
+    background-color: var(--text-muted);
+}
+
+.game-status-label {
+    font-weight: 500;
+}
+
+.game-status-meta {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 4px;
+}
+
+.game-instance-name {
+    margin-top: 2px;
+    font-size: 12px;
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.game-button-row {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+}
+
+.game-button-row .resolution-button {
+    padding: 8px 6px;
+    font-size: 13px;
+}
+
+.game-button-row .resolution-button:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.game-footnote {
+    margin-top: 8px;
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--text-muted);
+}
+
+.game-warn {
+    margin-top: 6px;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--accent-text);
+}
+
+.game-hint {
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--text-muted);
+}
+
+.game-meta-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.game-link {
+    color: var(--accent-text);
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.game-link:hover,
+.game-link:focus-visible {
+    color: var(--accent-text-strong);
+    text-decoration: underline;
+}
+
+.game-error {
+    margin-top: 8px;
+    padding: 8px 10px;
+    border: 1px solid var(--accent-border);
+    border-radius: var(--radius-sm);
+    background-color: var(--accent-soft);
+}
+
+.game-error-headline {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--accent-text-strong);
+}
+
+.game-error-detail {
+    margin-top: 4px;
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--text-muted);
+    overflow-wrap: anywhere;
+}

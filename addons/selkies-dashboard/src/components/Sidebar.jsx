@@ -64,6 +64,7 @@ import { fragmentWithSessionToken, shareablePageURL, urlFragmentKeyword } from "
 import { BITRATE_STOPS, CRF_STOPS, FRAMERATE_STOPS, framerateStopIndex, stopIndex, stopsWithin, withDisplayStop } from "../../../selkies-web-core/lib/slider-stops.js";
 import { FRAMERATE_DISPLAY, FRAMERATE_UNLIMITED, followsDisplay, matchDisplay } from "../../../selkies-web-core/lib/display-refresh.js";
 import SliderField from "./SliderField.jsx";
+import GamePanel from "./GamePanel.jsx";
 import { PALETTE_CHORDS, PALETTE_KEYS, TRACKPAD_SPEEDS, TRACKPAD_SPEED_KEY, USER_CHORDS_KEY, chordEvents,
   formatChord, parseChord, readUserChords, writeUserChords } from "../../../selkies-web-core/lib/touch-controls.js";
 import { resolveSpec, isSettingPinned, HIDPI_SPEC, RATE_CONTROL_SPEC,
@@ -286,6 +287,33 @@ function settingsPoster(delay) {
       pending = {};
       window.postMessage({ type: "settings", settings }, window.location.origin);
     }, delay);
+  };
+}
+
+/**
+ * Build one notification entry for the game panel.
+ *
+ * Lives outside the component because it reads the clock: React's render-purity
+ * rules treat `Date.now()` in a component body as an unstable read, even when
+ * the only caller is a click handler. The sequence number keeps ids unique
+ * without needing the timestamp at all.
+ * @param {{status: string, message: string, detail?: string}} notice
+ * @returns {{entry: object, timeout: number}}
+ */
+let gameNoticeSeq = 0;
+function gameNoticeEntry(notice) {
+  const isError = notice.status === "error";
+  gameNoticeSeq += 1;
+  return {
+    entry: {
+      id: `game-${isError ? "error" : "done"}-${gameNoticeSeq}`,
+      fileName: notice.message,
+      status: isError ? "error" : "end",
+      message: notice.detail || null,
+      timestamp: Date.now(),
+      fadingOut: false,
+    },
+    timeout: isError ? NOTIFICATION_TIMEOUT_ERROR : NOTIFICATION_TIMEOUT_SUCCESS,
   };
 }
 
@@ -1635,6 +1663,9 @@ function Sidebar() {
     screenSettings: false,
     stats: false,
     clipboard: false,
+    // Game hosting is host-level: it is collapsed by default because most
+    // viewers have no business starting a process on the machine.
+    game: false,
     // A phone lands on gamepads: the reason to open the dashboard on touch at all.
     gamepads: isMobileClient,
     files: false,
@@ -2896,6 +2927,21 @@ function Sidebar() {
 
   const handleUploadClick = () =>
     window.dispatchEvent(new CustomEvent("requestFileUpload"));
+
+  /**
+   * One entry point for the game panel's toasts.
+   *
+   * The panel knows *what* happened; this knows how a toast looks here (ids,
+   * stacking cap, fade timing). Keeping the shape in one place is why the
+   * panel does not import `MAX_NOTIFICATIONS` and the timeout constants.
+   */
+  const pushGameNotice = (notice) => {
+    const { entry, timeout } = gameNoticeEntry(notice);
+    setNotifications((prev) =>
+      [...prev.filter((n) => n.id !== entry.id), entry].slice(-MAX_NOTIFICATIONS)
+    );
+    scheduleNotificationRemoval(entry.id, timeout);
+  };
 
   /** The core message listener; the module docblock lists the message types handled. */
   useEffect(() => {
@@ -4947,6 +4993,32 @@ function Sidebar() {
                         <span>{sc.label}</span>
                       </div>
                     ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {(renderableSettings.game ?? true) && (
+              <div className="sidebar-section">
+                <div
+                  className="sidebar-section-header"
+                  onClick={() => toggleSection("game")}
+                  role="button"
+                  aria-expanded={sectionsOpen.game}
+                  aria-controls="game-content"
+                  tabIndex="0"
+                  onKeyDown={(e) =>
+                    (e.key === "Enter" || e.key === " ") && toggleSection("game")
+                  }
+                >
+                  <h3>{t("sections.game.title", "Game")}</h3>
+                  <span className="section-toggle-icon">
+                    {sectionsOpen.game ? <CaretUpIcon /> : <CaretDownIcon />}
+                  </span>
+                </div>
+                {sectionsOpen.game && (
+                  <div className="sidebar-section-content" id="game-content">
+                    <GamePanel t={t} notify={pushGameNotice} />
                   </div>
                 )}
               </div>
