@@ -89,6 +89,8 @@ npm --prefix addons/selkies-dashboard run dev
 
 完整线协议见服务端仓库的 [`docs/stage1-signaling-session.md`](https://github.com/cocosoys/cloud-stream/blob/main/docs/stage1-signaling-session.md)。
 
+**分支约定**：本仓与 `cloud-stream` 必须位于**同名分支**。开特性分支、合并、回滚都两仓同拍，基线是 `main`；禁止一端在 `main`、另一端在特性分支上提交。规则原文见服务端仓库 `CONTRIBUTING.md` 第 6 节第 6 条。
+
 ## 快捷键
 
 | 键 | 作用 |
