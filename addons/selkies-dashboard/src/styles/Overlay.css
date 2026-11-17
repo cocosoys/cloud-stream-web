@@ -2510,3 +2510,43 @@ a:active {
     color: var(--text-muted);
     overflow-wrap: anywhere;
 }
+
+/* --- Input lock panel --------------------------------------------------- */
+/* Amber, not red: a locked host is a state, not a fault. It shares the same
+   dot geometry as the game panel so the two rows read as one column. */
+.game-status-dot.is-locked {
+    background-color: #fbbf24;
+}
+
+.kiosk-unlock-row {
+    display: flex;
+    gap: 6px;
+    margin-top: 6px;
+}
+
+.kiosk-password {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 8px 10px;
+    border: 1px solid var(--item-border);
+    border-radius: var(--radius-sm);
+    background-color: transparent;
+    color: var(--text);
+    font-size: 13px;
+    font-family: inherit;
+}
+
+.kiosk-password:focus-visible {
+    outline: 2px solid var(--accent-text);
+    outline-offset: 1px;
+}
+
+.kiosk-password:disabled {
+    opacity: 0.45;
+}
+
+.kiosk-unlock-button {
+    flex: 0 0 auto;
+    padding: 8px 10px;
+    font-size: 13px;
+}

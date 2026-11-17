@@ -65,6 +65,7 @@ import { BITRATE_STOPS, CRF_STOPS, FRAMERATE_STOPS, framerateStopIndex, stopInde
 import { FRAMERATE_DISPLAY, FRAMERATE_UNLIMITED, followsDisplay, matchDisplay } from "../../../selkies-web-core/lib/display-refresh.js";
 import SliderField from "./SliderField.jsx";
 import GamePanel from "./GamePanel.jsx";
+import KioskPanel from "./KioskPanel.jsx";
 import { PALETTE_CHORDS, PALETTE_KEYS, TRACKPAD_SPEEDS, TRACKPAD_SPEED_KEY, USER_CHORDS_KEY, chordEvents,
   formatChord, parseChord, readUserChords, writeUserChords } from "../../../selkies-web-core/lib/touch-controls.js";
 import { resolveSpec, isSettingPinned, HIDPI_SPEC, RATE_CONTROL_SPEC,
@@ -1105,6 +1106,13 @@ function Sidebar() {
     newRenderable.keyboardButton = s.ui_sidebar_show_keyboard_button?.value ?? true;
     newRenderable.softButtons = s.ui_sidebar_show_soft_buttons?.value ?? true;
     newRenderable.coreButtons = s.ui_show_core_buttons?.value ?? true;
+    // Host-level panels. Unlike the settings above there is no core setting
+    // behind them: whether the feature exists is a launch flag on the server,
+    // which the panel reads from `/api/v1/health` and reports itself. Hiding
+    // the section on an unknown answer would mean the operator sees nothing on
+    // a host that does have the feature but is slow to answer.
+    newRenderable.game = true;
+    newRenderable.kiosk = true;
 
     newRenderable.encoder = isRenderable('encoder');
     newRenderable.framerate = isRenderable('framerate');
@@ -1666,6 +1674,9 @@ function Sidebar() {
     // Game hosting is host-level: it is collapsed by default because most
     // viewers have no business starting a process on the machine.
     game: false,
+    // Same reasoning, and locking the host's keyboard is even less of a
+    // spectator action.
+    kiosk: false,
     // A phone lands on gamepads: the reason to open the dashboard on touch at all.
     gamepads: isMobileClient,
     files: false,
@@ -5019,6 +5030,32 @@ function Sidebar() {
                 {sectionsOpen.game && (
                   <div className="sidebar-section-content" id="game-content">
                     <GamePanel t={t} notify={pushGameNotice} />
+                  </div>
+                )}
+              </div>
+            )}
+
+            {(renderableSettings.kiosk ?? true) && (
+              <div className="sidebar-section">
+                <div
+                  className="sidebar-section-header"
+                  onClick={() => toggleSection("kiosk")}
+                  role="button"
+                  aria-expanded={sectionsOpen.kiosk}
+                  aria-controls="kiosk-content"
+                  tabIndex="0"
+                  onKeyDown={(e) =>
+                    (e.key === "Enter" || e.key === " ") && toggleSection("kiosk")
+                  }
+                >
+                  <h3>{t("sections.kiosk.title", "Input lock")}</h3>
+                  <span className="section-toggle-icon">
+                    {sectionsOpen.kiosk ? <CaretUpIcon /> : <CaretDownIcon />}
+                  </span>
+                </div>
+                {sectionsOpen.kiosk && (
+                  <div className="sidebar-section-content" id="kiosk-content">
+                    <KioskPanel t={t} notify={pushGameNotice} />
                   </div>
                 )}
               </div>
