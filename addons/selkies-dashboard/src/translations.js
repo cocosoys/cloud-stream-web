@@ -294,6 +294,9 @@ const en = {
             windowMinimized: "minimized off-screen",
             noWindow: "The process is up but no window was found — the client may still be loading.",
             lastExit: "Last exit: {reason}",
+            lastExitStopped: "Stopped on request.",
+            lastExitClean: "The client quit normally.",
+            lastExitCrash: "Exited unexpectedly (code {code}) — check the crash reports.",
             exitReason: {
                 exited: "exited on its own",
                 "killed-window-gone": "window closed, process killed",
@@ -1038,6 +1041,9 @@ const zh_cn = {
             windowMinimized: "已最小化到屏幕外",
             noWindow: "进程在跑但没找到窗口 —— 客户端可能还在加载。",
             lastExit: "上次退出：{reason}",
+            lastExitStopped: "已按请求停止。",
+            lastExitClean: "客户端正常退出。",
+            lastExitCrash: "异常退出（code {code}），查看崩溃报告。",
             exitReason: {
                 exited: "自行退出",
                 "killed-window-gone": "窗口已消失，进程被强杀",

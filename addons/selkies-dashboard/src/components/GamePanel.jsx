@@ -165,6 +165,17 @@ export default function GamePanel({ t, notify }) {
     const running = game.state === "running";
     const busy = pending !== null;
     const lastExit = game.last_exit;
+    // 本机的"停止"恒为 killed-window-gone + code 1（窗口先销毁、javaw 不退、1 秒后
+    // 被杀），与一次真崩溃长得一模一样。后端从 0.4.1 起在 last_exit 里带 requested，
+    // 不看它就只能在"把玩家点停说成崩溃"和"把崩溃说成正常停止"之间二选一。
+    // requested 缺失 = 老后端，退回旧文案而不是猜。
+    const exitTone = !lastExit
+        ? null
+        : lastExit.requested === true
+          ? "requested"
+          : lastExit.requested === false
+            ? (lastExit.code === 0 ? "clean" : "crash")
+            : "legacy";
     const crashCount = Number(game.crash_reports || 0);
     const windowInfo = game.window;
 
@@ -200,7 +211,24 @@ export default function GamePanel({ t, notify }) {
                         )}
                     </div>
                 )}
-                {lastExit && (
+                {exitTone === "requested" && (
+                    <div className="game-status-meta">
+                        {t("sections.game.lastExitStopped", "Stopped on request.")}
+                    </div>
+                )}
+                {exitTone === "clean" && (
+                    <div className="game-status-meta">
+                        {t("sections.game.lastExitClean", "The client quit normally.")}
+                    </div>
+                )}
+                {exitTone === "crash" && lastExit && (
+                    <div className="game-warn">
+                        {t("sections.game.lastExitCrash", {
+                            code: lastExit.code != null ? lastExit.code : "?",
+                        })}
+                    </div>
+                )}
+                {exitTone === "legacy" && lastExit && (
                     <div className="game-status-meta">
                         {t("sections.game.lastExit", {
                             reason: t(
